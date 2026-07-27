@@ -1,0 +1,118 @@
+[project]
+name = "datarobot-fastrag"
+version = "0.2.0"
+description = "Async FastAPI runner for DataRobot custom LLM and RAG models"
+readme = "README.md"
+requires-python = ">=3.12"
+authors = [{ name = "Nickolai Novik", email = "nickolai@datarobot.com" }]
+
+dependencies = [
+    "fastapi>=0.128.7",
+    "openai>=2.20.0",
+    "pydantic>=2.0.0",
+    "pydantic-settings>=2.7.1",
+    "pyyaml>=6.0.3",
+    "uvicorn[standard]>=0.27.0",
+    "pandas>=2.2.0",
+    "python-multipart>=0.0.9",
+    "opentelemetry-api>=1.23.0",
+    "opentelemetry-sdk>=1.23.0",
+    "opentelemetry-instrumentation-fastapi>=0.44b0",
+    "opentelemetry-exporter-otlp>=1.23.0",
+    "opentelemetry-instrumentation-openai>=0.52.3",
+    "datarobot-moderations>=11.2.47",
+]
+
+[project.scripts]
+fastrag = "fastrag.main:main"
+
+[dependency-groups]
+integration = [
+    "datarobot-moderations>=11.2.47",
+]
+dev = [
+    "aiohttp>=3.13.3",
+    "ipdb>=0.13.13",
+    "ipython>=9.10.0",
+    "mypy>=1.19.1",
+    "pytest-asyncio>=1.3.0",
+    "pytest-cov>=7.0.0",
+    "pytest>=9.0.2",
+    "python-semantic-release>=10.5.3",
+    "ruff>=0.15.0",
+]
+
+
+[project.optional-dependencies]
+build = ["uv~=0.9.6"]
+
+[tool.semantic_release]
+version_toml = ["pyproject.toml:project.version"]
+build_command = """
+python -m pip install -e '.[build]'
+uv lock --upgrade-package datarobot-fastrag
+git add uv.lock
+uv build
+"""
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+markers = [
+    "integration: requires datarobot-moderations (already in main deps; marks slower/external tests)",
+]
+
+[tool.coverage.run]
+branch = true
+
+[tool.coverage.report]
+# Regexes for lines to exclude from consideration
+exclude_also = [
+    # Don't complain about missing debug-only code:
+    "def __repr__",
+    "if self\\.debug",
+
+    # Don't complain if tests don't hit defensive assertion code:
+    "raise AssertionError",
+    "raise NotImplementedError",
+
+    # Don't complain if non-runnable code isn't run:
+    "if 0:",
+    "if __name__ == .__main__.:",
+
+    # Don't complain about abstract methods, they aren't run:
+    "@(abc\\.)?abstractmethod",
+    ]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+exclude = ["examples", "scripts"]
+
+lint.select = ["I", "F", "PL", "C90", "E", "W"]
+lint.ignore = [
+    # Magic value used in comparison, consider replacing {value} with a constant variable
+    "PLR2004",
+    # Do not assign a lambda expression, use a def
+    "E731",
+    "E402",
+]
+
+[tool.ruff.lint.isort]
+force-single-line = true
+split-on-trailing-comma = true
+
+[tool.ruff.lint.pylint]
+max-args=25
+max-branches=12
+max-returns=10
+max-statements=75
+
+[tool.ruff.lint.mccabe]
+max-complexity = 15
+
+[tool.mypy]
+disallow_untyped_defs = true
+disable_error_code = ["import-untyped"]
+plugins = ["pydantic.mypy"]

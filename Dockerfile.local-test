@@ -1,0 +1,6 @@
+FROM datarobotdev/buzok-genai-custom-model-local-dropin-env:latest
+USER root
+COPY dist/datarobot_fastrag-*.whl /tmp/
+RUN pip install --force-reinstall /tmp/datarobot_fastrag-*.whl && rm /tmp/datarobot_fastrag-*.whl
+USER envuser
+ENTRYPOINT ["/opt/code/start_server.sh"]

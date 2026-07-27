@@ -1,0 +1,3 @@
+guards: []
+timeout_action: score
+timeout_sec: 60
