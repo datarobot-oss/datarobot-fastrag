@@ -1,0 +1,3 @@
+name: FastDRUM Benchmark (async)
+type: inference
+targetType: textgeneration

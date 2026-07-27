@@ -1,0 +1,3 @@
+name: DRUM RAG Benchmark (sync)
+type: inference
+targetType: textgeneration

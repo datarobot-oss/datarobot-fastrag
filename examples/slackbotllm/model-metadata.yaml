@@ -1,0 +1,23 @@
+name: TestModel
+targetType: agenticworkflow
+type: inference
+
+runtimeParameterDefinitions:
+  - fieldName: AZURE_OPENAI_API_KEY
+    type: credential
+
+  - fieldName: AZURE_OPENAI_ENDPOINT
+    type: string
+    defaultValue: https://dr-l3-int-nonprod-us-development-1-mlops-dev-eastus-openai.openai.azure.com
+
+  - fieldName: AZURE_DEPLOYMENT
+    defaultValue: gpt-35-turbo
+    type: string
+
+  - fieldName: AZURE_API_VERSION
+    defaultValue: '2024-02-15-preview'
+    type: string
+
+  - fieldName: PROMPT_COLUMN_NAME
+    defaultValue: promptText
+    type: string

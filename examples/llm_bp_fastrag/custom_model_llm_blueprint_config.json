@@ -1,0 +1,15 @@
+{
+    "llm_blueprint_id": "6995e5900204ade0c5f7b811",
+    "llm_id": "azure-openai-gpt-5",
+    "llm_settings": {
+        "system_prompt": "",
+        "max_completion_length": null,
+        "seed": null,
+        "temperature": null,
+        "reasoning_effort": null
+    },
+    "context_size": 400000,
+    "llm_credential_type": "openai",
+    "external_custom_model_llm_settings": null,
+    "vector_database_settings": null
+}

@@ -1,0 +1,8 @@
+{
+  "id": "67ab469cecdca772287de644",
+  "name": "[GenAI] Python 3.12 with Moderations",
+  "description": "Python 3.12 environment for GenAI custom models with Moderation and assessment support",
+  "programmingLanguage": "python",
+  "environmentVersionId": "698f2ffe3302982a8c4e4208",
+  "isPublic": true
+}
