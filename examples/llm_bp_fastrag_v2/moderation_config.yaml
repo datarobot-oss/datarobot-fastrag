@@ -1,0 +1,15 @@
+guards:
+- additional_guard_config: null
+  description: Guard transferred from Playground 69e104cb04725d4a854e2f64
+  is_agentic: false
+  name: Prompt tokens
+  ootb_type: token_count
+  stage: prompt
+  type: ootb
+- additional_guard_config: null
+  description: Guard transferred from Playground 69e104cb04725d4a854e2f64
+  is_agentic: false
+  name: Response tokens
+  ootb_type: token_count
+  stage: response
+  type: ootb
