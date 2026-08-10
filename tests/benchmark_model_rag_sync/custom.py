@@ -8,8 +8,8 @@ def chat(completion_create_params, model=None, **kwargs):
     50ms  — vector DB similarity search (blocks thread)
     200ms — LLM completion call (blocks thread)
     """
-    time.sleep(0.05)   # vector DB
-    time.sleep(0.20)   # LLM
+    time.sleep(0.05)  # vector DB
+    time.sleep(0.20)  # LLM
     messages = completion_create_params.get("messages", [])
     prompt = next((m["content"] for m in reversed(messages) if m["role"] == "user"), "")
     return {

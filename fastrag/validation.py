@@ -261,7 +261,7 @@ def _format_extra_output(extra_model_output: pd.DataFrame) -> ExtraModelOutput:
     return ExtraModelOutput(**data)
 
 
-def _extract_scalar_predictions(df: pd.DataFrame, cast: Callable) -> list[Any]:
+def _extract_scalar_predictions(df: pd.DataFrame, cast: Callable[[Any], Any]) -> list[Any]:
     if "prediction" in df.columns:
         return [cast(row["prediction"]) for _, row in df.iterrows()]
     if df.shape[1] == 1:
