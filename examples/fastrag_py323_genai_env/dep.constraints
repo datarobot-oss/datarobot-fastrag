@@ -15,6 +15,7 @@ anthropic==0.79.0
 anyio==4.12.1
 appdirs==1.4.4
 argcomplete==3.6.3
+asyncpg==0.31.0
 attrs==25.4.0
 awscli==1.43.2
 azure-core==1.38.1
@@ -117,6 +118,7 @@ langchain-milvus==0.2.1
 langchain-nvidia-ai-endpoints==0.3.19
 langchain-openai==0.3.23
 langchain-pinecone==0.2.9
+langchain-postgres==0.0.17
 langchain-tests==0.3.22
 langchain-text-splitters==0.3.11
 langsmith==0.7.3
@@ -182,6 +184,7 @@ pandas==2.2.3
 pinecone==7.3.0
 pinecone-plugin-assistant==1.8.0
 pinecone-plugin-interface==0.0.7
+pgvector==0.3.6
 platformdirs==4.9.2
 pluggy==1.6.0
 portalocker==3.2.0
@@ -193,6 +196,9 @@ propcache==0.4.1
 proto-plus==1.27.1
 protobuf==5.29.6
 psutil==7.2.2
+psycopg==3.3.4
+psycopg-binary==3.3.4
+psycopg-pool==3.3.1
 py-cpuinfo==9.0.0
 py4j==0.10.9.9
 pyarrow==15.0.2
