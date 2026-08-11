@@ -1,0 +1,27 @@
+---
+name: release
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  pypi-publish:
+    name: "build and publish to PyPI"
+    runs-on: ubuntu-latest
+    # Must match the environment name registered on PyPI (or remove both).
+    environment: pypi
+    permissions:
+      # Required for Trusted Publishing (OIDC token exchange with PyPI).
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9  # v9.0.0
+        with:
+          python-version: "3.12"
+      - run: uv build
+      # No token needed: uv mints an OIDC token and exchanges it with PyPI.
+      # `always` fails loudly if OIDC is unavailable instead of silently skipping.
+      - run: uv publish --trusted-publishing always
