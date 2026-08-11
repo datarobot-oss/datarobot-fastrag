@@ -97,9 +97,7 @@ async def test_score_calls_mod_pipeline_when_present() -> None:
 async def test_chat_calls_mod_pipeline_when_present() -> None:
     """chat() must delegate to pipeline.async_chat(params, model, chat_hook)."""
     mock_pipeline = MagicMock()
-    mock_pipeline.async_chat = AsyncMock(
-        return_value={"object": "chat.completion", "choices": []}
-    )
+    mock_pipeline.async_chat = AsyncMock(return_value={"object": "chat.completion", "choices": []})
 
     adapter = _make_adapter(score=_dummy_score, chat=_dummy_chat)
     await adapter.initialize()
