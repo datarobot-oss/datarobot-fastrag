@@ -13,8 +13,8 @@ async def chat(completion_create_params, model=None, **kwargs):
     for the full 250ms. Under FRAG the event loop yields at each await, so
     throughput scales with concurrency instead of thread count.
     """
-    await asyncio.sleep(0.05)   # vector DB
-    await asyncio.sleep(0.20)   # LLM
+    await asyncio.sleep(0.05)  # vector DB
+    await asyncio.sleep(0.20)  # LLM
     messages = completion_create_params.get("messages", [])
     prompt = next((m["content"] for m in reversed(messages) if m["role"] == "user"), "")
     return {
