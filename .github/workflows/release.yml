@@ -14,8 +14,6 @@ jobs:
     environment: pypi
     permissions:
       # Required for Trusted Publishing (OIDC token exchange with PyPI).
-    permissions:
-      # Required for Trusted Publishing (OIDC token exchange with PyPI).
       id-token: write
       contents: read
     steps:
