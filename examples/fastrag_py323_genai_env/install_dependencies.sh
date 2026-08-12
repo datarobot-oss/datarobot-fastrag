@@ -1,7 +1,12 @@
 #!/bin/bash
 set -e
 
-ARTIFACTORY_MAVEN_URL="https://artifactory.devinfra.drdev.io/artifactory/maven-central/com/datarobot"
+# Public Maven Central mirror of the DataRobot MLOps jars (groupId: com.datarobot).
+# Used instead of DataRobot's internal Artifactory so this image is buildable by
+# customers on their own machines with only public-internet access.
+# NOTE: not every mlops version is published here — keep DATAROBOT_MLOPS_VERSION on a
+# version that exists at https://repo1.maven.org/maven2/com/datarobot/mlops-agent/
+MAVEN_CENTRAL_URL="https://repo1.maven.org/maven2/com/datarobot"
 
 # A number of packages here are based on the following custom models image:
 # datarobot/dropin-env-base-jdk:ubi8.8-py3.11-jdk11.0.22-drum1.10.20-mlops9.2.8
@@ -30,8 +35,9 @@ pip3 install datarobot_fastrag-0.2.1-py3-none-any.whl
 # datarobot-moderations is installed as a dependency of datarobot-fastrag
 
 mkdir -p $JARS_PATH
-curl -L ${ARTIFACTORY_MAVEN_URL}/datarobot-mlops/${DATAROBOT_MLOPS_VERSION}/datarobot-mlops-${DATAROBOT_MLOPS_VERSION}.jar --output ${JARS_PATH}/datarobot-mlops-${DATAROBOT_MLOPS_VERSION}.jar && \
-curl -L ${ARTIFACTORY_MAVEN_URL}mlops-agent/${DATAROBOT_MLOPS_VERSION}/mlops-agent-${DATAROBOT_MLOPS_VERSION}.jar --output ${JARS_PATH}/mlops-agent-${DATAROBOT_MLOPS_VERSION}.jar && \
+# -f makes curl fail on HTTP errors (e.g. 404) instead of writing an error page into the jar
+curl -fSL ${MAVEN_CENTRAL_URL}/datarobot-mlops/${DATAROBOT_MLOPS_VERSION}/datarobot-mlops-${DATAROBOT_MLOPS_VERSION}.jar --output ${JARS_PATH}/datarobot-mlops-${DATAROBOT_MLOPS_VERSION}.jar
+curl -fSL ${MAVEN_CENTRAL_URL}/mlops-agent/${DATAROBOT_MLOPS_VERSION}/mlops-agent-${DATAROBOT_MLOPS_VERSION}.jar --output ${JARS_PATH}/mlops-agent-${DATAROBOT_MLOPS_VERSION}.jar
 
 microdnf upgrade
 microdnf clean all

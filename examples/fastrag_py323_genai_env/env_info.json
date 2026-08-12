@@ -1,8 +1,6 @@
 {
-  "id": "67ab469cecdca772287de644",
-  "name": "[GenAI] Python 3.12 with Moderations",
+  "name": "[GenAI] Python 3.12 with Moderations w fastrag shoop",
   "description": "Python 3.12 environment for GenAI custom models with Moderation and assessment support",
   "programmingLanguage": "python",
-  "environmentVersionId": "698f2ffe3302982a8c4e4208",
-  "isPublic": true
+  "environmentVersionId": "6a7b60b4d0418f27ad3d5c73"
 }

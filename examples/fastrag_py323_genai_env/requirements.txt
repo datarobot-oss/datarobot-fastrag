@@ -2,7 +2,7 @@
 
 pyarrow>=0.15.1,<16.0.0
 datarobot==3.12.0
-datarobot-mlops==11.1.0
+datarobot-mlops==11.2.42
 cloudpickle==2.2.1
 # torch for x86_64 archtectures and linux from pypi comes with GPU support and dependencies which adds mutliple addtional GBs to the image which we don't need
 # You can see find available wheels of the Meta torch repository here: https://download.pytorch.org/whl/torch/
