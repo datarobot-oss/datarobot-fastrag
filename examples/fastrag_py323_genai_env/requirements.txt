@@ -1,55 +1,50 @@
--c dep.constraints
+# ---------------------------------------------------------------------------
+# Extra Python dependencies for this fastrag execution environment.
+#
+# datarobot-fastrag is installed from a local wheel (see install_dependencies.sh)
+# and pulls its FULL required dependency closure automatically, including
+# datarobot-moderations (core) and, transitively:
+#   fastapi, uvicorn, starlette, pydantic, pydantic-settings, openai, httpx,
+#   opentelemetry-*, numpy, pandas, tiktoken, rouge-score, nltk, requests, ...
+# So none of those need to be listed here.
+#
+# This is a MINIMAL env. The heavy "batteries" that the official
+# [GenAI] Python 3.12 with Moderations environment ships -- torch, transformers,
+# sentence-transformers, faiss, onnx/onnxruntime, optimum, scikit-learn, scipy,
+# langchain*, llama-index, nemoguardrails, google-cloud-aiplatform, and the
+# vector-DB clients -- and DataRobot MLOps monitoring are intentionally excluded.
+#
+# Add per-model dependencies below (or ship them in the model's own
+# requirements). Moderation guards that rely on optional features need the
+# matching datarobot-moderations extras, e.g.:
+#   datarobot-moderations[llm-eval]        # LLM-as-judge / faithfulness metrics
+#   datarobot-moderations[nemo]            # NeMo Guardrails
+#   datarobot-moderations[vertex]          # Vertex AI provider for guards
+#   datarobot-moderations[datarobot-sdk]   # guards backed by DataRobot deployments
+# ---------------------------------------------------------------------------
 
-pyarrow>=0.15.1,<16.0.0
-datarobot==3.12.0
-datarobot-mlops==11.2.42
-cloudpickle==2.2.1
-# torch for x86_64 archtectures and linux from pypi comes with GPU support and dependencies which adds mutliple addtional GBs to the image which we don't need
-# You can see find available wheels of the Meta torch repository here: https://download.pytorch.org/whl/torch/
-torch @ https://download.pytorch.org/whl/cpu/torch-2.7.1%2Bcpu-cp312-cp312-manylinux_2_28_x86_64.whl#sha256=8f8b3cfc53010a4b4a3c7ecb88c212e9decc4f5eeb6af75c3c803937d2d60947
-transformers==4.52.1
-openai==1.81.0
-langchain==0.3.26
-langchain-community==0.3.27
-langchain-core==0.3.81
-langchain-elasticsearch==0.3.2
-langchain-pinecone==0.2.9
-langchain-milvus==0.2.1
-langchain-text-splitters>=0.3.9
-optimum==1.26.1
-onnxruntime==1.19.2
-onnx==1.18.0
-sentence-transformers==4.0.2
-faiss-cpu==1.11.0
-numpy==1.26.4
-pandas<=2.2.3
-scikit-learn==1.5.0
-scipy>=1.1,<=1.12
-tiktoken==0.7.0
-google-cloud-aiplatform>=1.34.0,<=1.67.1
-pydantic>=2.11.5,<=2.11.7
-pydantic-settings==2.7.1
-aiofiles==23.2.1
-aioboto3==13.1.1
-rouge-score==0.1.2
-fugashi==1.3.2
-unidic-lite==1.0.8
-llama-index-core==0.13.2
-nemoguardrails>=0.13
-nltk==3.9.1
-SQLAlchemy==2.0.35
-setuptools==80.9.0
-# Required for logging done in the model_execution_lib
-loguru==0.7.3
-pyhumps==3.8.0
-pypdf>=6.6.0
+# Cap openai below 3.0. fastrag depends on `openai>=2.20.0` (open-ended), but
+# openai 3.0.0 is a breaking major that swapped its `httpx` dependency for an
+# `httpx2` fork -- so an unpinned resolve drops the `httpx` module the runtime
+# needs and pulls an openai version fastrag was not built against. Staying on 2.x
+# keeps real httpx and matches the tested SDK.
+openai>=2.20.0,<3
 
-httpx==0.28.1
-# Keep this in sync with version in worker/pyproject.toml
-# datarobot-moderations is installed directly from the local wheel below
-# fastembed version is managed by the moderations wheel install
+# httpx is required at runtime (openai 2.x uses it internally). Listed explicitly
+# so it is guaranteed present regardless of openai's transitive dependency choices.
+httpx>=0.28,<1
 
-backoff>=2.2.1
-pinecone==7.3.0
-ujson==5.7.0
-urllib3==2.6.3
+# ---------------------------------------------------------------------------
+# Monitoring -- Python-only (no embedded Java MLOps agent).
+#
+# datarobot-moderations reports guard/moderation events through the DataRobot
+# SDK's datarobot.mlops.events API (its `datarobot-sdk` extra = datarobot +
+# datarobot-predict), and datarobot-mlops adds prediction/drift reporting from
+# the model. All three are pure Python (~33 MB total); the model reports to
+# DataRobot directly or via a platform-run agent, so no JRE / agent jar is baked
+# into the image. DataRobot injects MLOPS_DEPLOYMENT_ID / MLOPS_MODEL_ID and the
+# spooler configuration at deploy time -- nothing to set here.
+datarobot>=3.6              # provides datarobot.mlops.events (moderation events)
+datarobot-predict>=1.9.6    # pairs with the datarobot SDK (datarobot-sdk extra)
+datarobot-mlops==11.2.42    # prediction / drift reporting
+# ---------------------------------------------------------------------------
