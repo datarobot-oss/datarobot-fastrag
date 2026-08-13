@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import time
 from collections.abc import AsyncIterable
 from collections.abc import AsyncIterator
 from collections.abc import Awaitable
@@ -30,6 +31,8 @@ from .loader import HookName
 from .model_adapter import ModelAdapter
 from .model_metadata import ModelMetadata
 from .model_metadata import TargetType
+from .monitoring import MLOpsReporter
+from .monitoring import elapsed_ms
 from .schemas import CapabilitiesResponse
 from .schemas import HealthResponse
 from .schemas import InfoResponse
@@ -103,9 +106,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     model_adapter = await hook_loader.load()
     app.state.model_adapter = model_adapter
 
+    mlops_reporter = MLOpsReporter()
+    mlops_reporter.initialize()
+    app.state.mlops_reporter = mlops_reporter
+
     try:
         yield
     finally:
+        mlops_reporter.shutdown()
         model_adapter.shutdown()
         if otel_providers is not None:
             otel_providers.trace_provider.shutdown()
@@ -129,6 +137,11 @@ def get_model_metadata(request: Request) -> ModelMetadata:
 def get_model_adapter(request: Request) -> ModelAdapter:
     model_adapter: ModelAdapter = request.app.state.model_adapter
     return model_adapter
+
+
+def get_mlops_reporter(request: Request) -> MLOpsReporter:
+    reporter: MLOpsReporter = request.app.state.mlops_reporter
+    return reporter
 
 
 @router.get("/", response_model=HealthResponse)
@@ -164,6 +177,7 @@ async def predict(
     X: UploadFile = File(None),
     model_adapter: ModelAdapter = Depends(get_model_adapter),
     model_metadata: ModelMetadata = Depends(get_model_metadata),
+    reporter: MLOpsReporter = Depends(get_mlops_reporter),
 ) -> PredictionResponse:
     content, _ = await read_structured_payload(request, X)
     df = read_csv_or_raise(content)
@@ -178,18 +192,26 @@ async def predict(
         "target_name": model_metadata.inference_model.target_name,
     }
 
-    predictions = await _await_or_api_error(
-        model_adapter.score(df, **kwargs),
-        detail="Prediction failed.",
-        log_message="Prediction failed.",
-    )
+    start = time.monotonic()
     try:
-        return format_prediction_response(predictions, model_metadata)
+        predictions = await _await_or_api_error(
+            model_adapter.score(df, **kwargs),
+            detail="Prediction failed.",
+            log_message="Prediction failed.",
+        )
+        response = format_prediction_response(predictions, model_metadata)
     except ValueError as exc:
+        reporter.report_error(elapsed_ms(start))
         raise UnprocessableEntityError(
             detail=str(exc),
             log_message="Prediction output validation failed.",
         ) from exc
+    except Exception:
+        reporter.report_error(elapsed_ms(start))
+        raise
+
+    reporter.report_predictions(_prediction_count(predictions), elapsed_ms(start))
+    return response
 
 
 @router.post(
@@ -206,18 +228,33 @@ async def chat_completions(
     body: OpenAIChatCompletionRequest,
     model_adapter: ModelAdapter = Depends(get_model_adapter),
     model_metadata: ModelMetadata = Depends(get_model_metadata),
+    reporter: MLOpsReporter = Depends(get_mlops_reporter),
 ) -> Any:
     _ensure_hook_available(model_adapter, HookName.CHAT)
 
     target_type = model_metadata.target_type
     kwargs = {"target_type": target_type}
 
-    response = await _await_or_api_error(
-        model_adapter.chat(body.model_dump(exclude_none=True), **kwargs),
-        detail="Chat completion failed.",
-        log_message="Chat completion failed.",
+    # Count one prediction per successful chat completion (DRUM parity). For
+    # streaming responses the count is reported only after the stream is fully
+    # drained, so cancelled/failed streams are not counted -- see the generators
+    # in _format_chat_response.
+    start = time.monotonic()
+    try:
+        response = await _await_or_api_error(
+            model_adapter.chat(body.model_dump(exclude_none=True), **kwargs),
+            detail="Chat completion failed.",
+            log_message="Chat completion failed.",
+        )
+    except Exception:
+        reporter.report_error(elapsed_ms(start))
+        raise
+
+    return _format_chat_response(
+        response,
+        on_complete=lambda: reporter.report_chat(elapsed_ms(start)),
+        on_error=lambda: reporter.report_error(elapsed_ms(start)),
     )
-    return _format_chat_response(response)
 
 
 @router.post("/predictUnstructured/")
@@ -298,17 +335,38 @@ async def get_supported_llm_models(
     )
 
 
-def _format_chat_response(response: Any) -> Any:
+def _noop() -> None:
+    pass
+
+
+def _prediction_count(predictions: Any) -> int:
+    """Number of predictions in a structured scoring result (row count).
+
+    Mirrors DRUM's ``num_predictions=len(predictions)``; falls back to 1 for
+    return types without a length.
+    """
+    try:
+        return len(predictions)
+    except TypeError:
+        return 1
+
+
+def _format_chat_response(
+    response: Any,
+    on_complete: Callable[[], None] = _noop,
+    on_error: Callable[[], None] = _noop,
+) -> Any:
     if _is_async_streaming_response(response):
         return StreamingResponse(
-            _astream_openai_chunks(response),
+            _astream_openai_chunks(response, on_complete, on_error),
             media_type="text/event-stream",
         )
     if _is_streaming_response(response):
         return StreamingResponse(
-            _stream_openai_chunks(response),
+            _stream_openai_chunks(response, on_complete, on_error),
             media_type="text/event-stream",
         )
+    on_complete()
     return _to_jsonable(response)
 
 
@@ -337,19 +395,37 @@ def _to_jsonable(response: Any) -> Any:
     return response
 
 
-def _stream_openai_chunks(stream: Iterable[Any]) -> Iterator[str]:
-    for chunk in stream:
-        yield from _format_chunk_as_sse_lines(chunk)
+def _stream_openai_chunks(
+    stream: Iterable[Any],
+    on_complete: Callable[[], None] = _noop,
+    on_error: Callable[[], None] = _noop,
+) -> Iterator[str]:
+    try:
+        for chunk in stream:
+            yield from _format_chunk_as_sse_lines(chunk)
+    except Exception:
+        on_error()
+        raise
 
     yield "data: [DONE]\n\n"
+    on_complete()
 
 
-async def _astream_openai_chunks(stream: AsyncIterable[Any]) -> AsyncIterator[str]:
-    async for chunk in stream:
-        for line in _format_chunk_as_sse_lines(chunk):
-            yield line
+async def _astream_openai_chunks(
+    stream: AsyncIterable[Any],
+    on_complete: Callable[[], None] = _noop,
+    on_error: Callable[[], None] = _noop,
+) -> AsyncIterator[str]:
+    try:
+        async for chunk in stream:
+            for line in _format_chunk_as_sse_lines(chunk):
+                yield line
+    except Exception:
+        on_error()
+        raise
 
     yield "data: [DONE]\n\n"
+    on_complete()
 
 
 def _format_chunk_as_sse_lines(chunk: Any) -> list[str]:
