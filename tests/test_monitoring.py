@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 from fastrag.monitoring import MLOpsReporter
 from fastrag.monitoring import elapsed_ms
 from fastrag.server import _astream_openai_chunks
+from fastrag.server import _format_chat_response
 from fastrag.server import _stream_openai_chunks
 from fastrag.server import app
 
@@ -180,6 +181,36 @@ def test_async_stream_reports_on_complete():
     out = asyncio.run(drain())
     assert calls == {"complete": 1, "error": 0}
     assert any("[DONE]" in line for line in out)
+
+
+def test_non_streaming_reports_error_when_serialization_fails():
+    calls = {"complete": 0, "error": 0}
+
+    class _BadResponse:
+        object = "chat.completion"  # routes to the non-streaming path
+
+        def model_dump(self):
+            raise RuntimeError("cannot serialize")
+
+    with pytest.raises(RuntimeError):
+        _format_chat_response(
+            _BadResponse(),
+            on_complete=lambda: calls.__setitem__("complete", calls["complete"] + 1),
+            on_error=lambda: calls.__setitem__("error", calls["error"] + 1),
+        )
+    # Failed conversion must count as an error, never a success.
+    assert calls == {"complete": 0, "error": 1}
+
+
+def test_non_streaming_reports_success_after_serialization():
+    calls = {"complete": 0, "error": 0}
+    payload = _format_chat_response(
+        {"object": "chat.completion", "choices": []},
+        on_complete=lambda: calls.__setitem__("complete", calls["complete"] + 1),
+        on_error=lambda: calls.__setitem__("error", calls["error"] + 1),
+    )
+    assert payload == {"object": "chat.completion", "choices": []}
+    assert calls == {"complete": 1, "error": 0}
 
 
 def test_async_stream_reports_on_error():

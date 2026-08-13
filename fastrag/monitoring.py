@@ -27,7 +27,7 @@ except Exception:  # pragma: no cover - fallback if the util moves/renames
     from contextlib import contextmanager
 
     @contextmanager
-    def suppress_instrumentation() -> Any:  # type: ignore[misc]
+    def suppress_instrumentation() -> Any:
         yield
 
 

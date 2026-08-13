@@ -366,8 +366,15 @@ def _format_chat_response(
             _stream_openai_chunks(response, on_complete, on_error),
             media_type="text/event-stream",
         )
+    # Serialize first, then count: a conversion failure must report an error, not
+    # a success, so failed responses never inflate the Total Predictions counter.
+    try:
+        payload = _to_jsonable(response)
+    except Exception:
+        on_error()
+        raise
     on_complete()
-    return _to_jsonable(response)
+    return payload
 
 
 def _is_non_streaming(response: Any) -> bool:
