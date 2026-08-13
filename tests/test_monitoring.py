@@ -9,9 +9,9 @@ from fastapi.testclient import TestClient
 
 from fastrag.monitoring import MLOpsReporter
 from fastrag.monitoring import elapsed_ms
-from fastrag.server import _astream_openai_chunks
 from fastrag.server import _format_chat_response
-from fastrag.server import _stream_openai_chunks
+from fastrag.server import _meter_async
+from fastrag.server import _meter_sync
 from fastrag.server import app
 
 
@@ -119,42 +119,39 @@ def test_predict_error_reports_error(client_and_reporter):
 
 
 # --------------------------------------------------------------------------- #
-# Stream generators fire the right callback on drain vs. mid-stream failure.    #
+# Metering wrappers fire the right callback on drain vs. mid-stream failure.     #
 # --------------------------------------------------------------------------- #
 
 
-def _chunk(content):
-    return {"object": "chat.completion.chunk", "choices": [{"delta": {"content": content}}]}
-
-
-def test_sync_stream_reports_on_complete():
+def test_meter_sync_reports_on_complete():
     calls = {"complete": 0, "error": 0}
 
-    def gen():
-        yield _chunk("hi")
+    def lines():
+        yield "data: a\n"
+        yield "data: b\n"
 
     out = list(
-        _stream_openai_chunks(
-            gen(),
+        _meter_sync(
+            lines(),
             lambda: calls.__setitem__("complete", calls["complete"] + 1),
             lambda: calls.__setitem__("error", calls["error"] + 1),
         )
     )
+    assert out == ["data: a\n", "data: b\n"]  # passed through unchanged
     assert calls == {"complete": 1, "error": 0}
-    assert any("[DONE]" in line for line in out)
 
 
-def test_sync_stream_reports_on_error():
+def test_meter_sync_reports_on_error():
     calls = {"complete": 0, "error": 0}
 
-    def gen():
-        yield _chunk("hi")
+    def lines():
+        yield "data: a\n"
         raise RuntimeError("boom")
 
     with pytest.raises(RuntimeError):
         list(
-            _stream_openai_chunks(
-                gen(),
+            _meter_sync(
+                lines(),
                 lambda: calls.__setitem__("complete", calls["complete"] + 1),
                 lambda: calls.__setitem__("error", calls["error"] + 1),
             )
@@ -162,25 +159,25 @@ def test_sync_stream_reports_on_error():
     assert calls == {"complete": 0, "error": 1}
 
 
-def test_async_stream_reports_on_complete():
+def test_meter_async_reports_on_complete():
     calls = {"complete": 0, "error": 0}
 
-    async def agen():
-        yield _chunk("hi")
+    async def lines():
+        yield "data: a\n"
 
     async def drain():
         return [
             line
-            async for line in _astream_openai_chunks(
-                agen(),
+            async for line in _meter_async(
+                lines(),
                 lambda: calls.__setitem__("complete", calls["complete"] + 1),
                 lambda: calls.__setitem__("error", calls["error"] + 1),
             )
         ]
 
     out = asyncio.run(drain())
+    assert out == ["data: a\n"]
     assert calls == {"complete": 1, "error": 0}
-    assert any("[DONE]" in line for line in out)
 
 
 def test_non_streaming_reports_error_when_serialization_fails():
@@ -213,18 +210,18 @@ def test_non_streaming_reports_success_after_serialization():
     assert calls == {"complete": 1, "error": 0}
 
 
-def test_async_stream_reports_on_error():
+def test_meter_async_reports_on_error():
     calls = {"complete": 0, "error": 0}
 
-    async def agen():
-        yield _chunk("hi")
+    async def lines():
+        yield "data: a\n"
         raise RuntimeError("boom")
 
     async def drain():
         return [
             line
-            async for line in _astream_openai_chunks(
-                agen(),
+            async for line in _meter_async(
+                lines(),
                 lambda: calls.__setitem__("complete", calls["complete"] + 1),
                 lambda: calls.__setitem__("error", calls["error"] + 1),
             )

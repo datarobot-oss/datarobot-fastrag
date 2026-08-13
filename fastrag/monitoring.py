@@ -24,11 +24,8 @@ logger = logging.getLogger("fastrag.monitoring")
 try:  # opentelemetry-instrumentation is already a fastrag dependency
     from opentelemetry.instrumentation.utils import suppress_instrumentation
 except Exception:  # pragma: no cover - fallback if the util moves/renames
-    from contextlib import contextmanager
-
-    @contextmanager
-    def suppress_instrumentation() -> Any:
-        yield
+    # nullcontext is a class, not a function, so strict mypy flags the rebind.
+    from contextlib import nullcontext as suppress_instrumentation  # type: ignore[assignment]
 
 
 def elapsed_ms(start: float) -> float:
@@ -58,11 +55,10 @@ class MLOpsReporter:
 
     def __init__(self) -> None:
         self._mlops: Any = None
-        self._enabled = False
 
     @property
     def enabled(self) -> bool:
-        return self._enabled
+        return self._mlops is not None
 
     def initialize(self) -> None:
         """Build and initialise the MLOps client. Never raises."""
@@ -98,12 +94,9 @@ class MLOpsReporter:
             logger.warning(
                 "Failed to initialise MLOps monitoring; disabling: %s", exc, exc_info=True
             )
-            self._mlops = None
-            self._enabled = False
             return
 
         self._mlops = mlops
-        self._enabled = True
         logger.info(
             "MLOps monitoring enabled (deployment_id=%s, model_id=%s)", deployment_id, model_id
         )
@@ -155,7 +148,7 @@ class MLOpsReporter:
         self._report(num_predictions=0, execution_time_ms=execution_time_ms)
 
     def _report(self, num_predictions: int, execution_time_ms: float) -> None:
-        if not self._enabled or self._mlops is None:
+        if self._mlops is None:
             return
         try:
             with suppress_instrumentation():
@@ -176,4 +169,3 @@ class MLOpsReporter:
             logger.warning("Error shutting down MLOps: %s", exc)
         finally:
             self._mlops = None
-            self._enabled = False

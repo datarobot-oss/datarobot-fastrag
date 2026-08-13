@@ -264,6 +264,9 @@ async def predict_unstructured(
     model_adapter: ModelAdapter = Depends(get_model_adapter),
     model_metadata: ModelMetadata = Depends(get_model_metadata),
 ) -> Response:
+    # Intentionally no MLOps reporting here: unstructured models use DRUM's
+    # *embedded* monitoring (MONITOR_EMBEDDED), where the score_unstructured hook
+    # self-reports via the mlops library. Counting here too would double-count.
     target_type = model_metadata.target_type
     if not target_type_is_unstructured(target_type):
         raise UnprocessableEntityError(
@@ -335,10 +338,6 @@ async def get_supported_llm_models(
     )
 
 
-def _noop() -> None:
-    pass
-
-
 def _prediction_count(predictions: Any) -> int:
     """Number of predictions in a structured scoring result (row count).
 
@@ -353,17 +352,20 @@ def _prediction_count(predictions: Any) -> int:
 
 def _format_chat_response(
     response: Any,
-    on_complete: Callable[[], None] = _noop,
-    on_error: Callable[[], None] = _noop,
+    on_complete: Callable[[], None],
+    on_error: Callable[[], None],
 ) -> Any:
+    # Metering lives in the wrappers below, keeping the chunk formatters pure:
+    # on_complete fires once the response is fully produced (after the stream is
+    # drained for streaming), on_error if producing it raises.
     if _is_async_streaming_response(response):
         return StreamingResponse(
-            _astream_openai_chunks(response, on_complete, on_error),
+            _meter_async(_astream_openai_chunks(response), on_complete, on_error),
             media_type="text/event-stream",
         )
     if _is_streaming_response(response):
         return StreamingResponse(
-            _stream_openai_chunks(response, on_complete, on_error),
+            _meter_sync(_stream_openai_chunks(response), on_complete, on_error),
             media_type="text/event-stream",
         )
     # Serialize first, then count: a conversion failure must report an error, not
@@ -375,6 +377,31 @@ def _format_chat_response(
         raise
     on_complete()
     return payload
+
+
+def _meter_sync(
+    lines: Iterator[str], on_complete: Callable[[], None], on_error: Callable[[], None]
+) -> Iterator[str]:
+    """Pass a sync line stream through, firing on_complete on drain / on_error on failure."""
+    try:
+        yield from lines
+    except Exception:
+        on_error()
+        raise
+    on_complete()
+
+
+async def _meter_async(
+    lines: AsyncIterator[str], on_complete: Callable[[], None], on_error: Callable[[], None]
+) -> AsyncIterator[str]:
+    """Async counterpart of _meter_sync."""
+    try:
+        async for line in lines:
+            yield line
+    except Exception:
+        on_error()
+        raise
+    on_complete()
 
 
 def _is_non_streaming(response: Any) -> bool:
@@ -402,37 +429,19 @@ def _to_jsonable(response: Any) -> Any:
     return response
 
 
-def _stream_openai_chunks(
-    stream: Iterable[Any],
-    on_complete: Callable[[], None] = _noop,
-    on_error: Callable[[], None] = _noop,
-) -> Iterator[str]:
-    try:
-        for chunk in stream:
-            yield from _format_chunk_as_sse_lines(chunk)
-    except Exception:
-        on_error()
-        raise
+def _stream_openai_chunks(stream: Iterable[Any]) -> Iterator[str]:
+    for chunk in stream:
+        yield from _format_chunk_as_sse_lines(chunk)
 
     yield "data: [DONE]\n\n"
-    on_complete()
 
 
-async def _astream_openai_chunks(
-    stream: AsyncIterable[Any],
-    on_complete: Callable[[], None] = _noop,
-    on_error: Callable[[], None] = _noop,
-) -> AsyncIterator[str]:
-    try:
-        async for chunk in stream:
-            for line in _format_chunk_as_sse_lines(chunk):
-                yield line
-    except Exception:
-        on_error()
-        raise
+async def _astream_openai_chunks(stream: AsyncIterable[Any]) -> AsyncIterator[str]:
+    async for chunk in stream:
+        for line in _format_chunk_as_sse_lines(chunk):
+            yield line
 
     yield "data: [DONE]\n\n"
-    on_complete()
 
 
 def _format_chunk_as_sse_lines(chunk: Any) -> list[str]:
