@@ -39,7 +39,10 @@ class _RecordingReporter:
 
 
 @pytest.fixture
-def client_and_reporter(monkeypatch, test_model_dir):
+def client_and_reporter(clean_mlops_env, test_model_dir):
+    # clean_mlops_env clears MLOPS_* so the reporter built during lifespan stays
+    # disabled (never inits a real client on a host with MLOPS_* exported).
+    monkeypatch = clean_mlops_env
     monkeypatch.setenv("CODE_DIR", test_model_dir)
     monkeypatch.setenv("RUNTIME_PARAMS_FILE", os.path.join(test_model_dir, "model-metadata.yaml"))
     reporter = _RecordingReporter()
@@ -201,13 +204,33 @@ def test_non_streaming_reports_error_when_serialization_fails():
 
 def test_non_streaming_reports_success_after_serialization():
     calls = {"complete": 0, "error": 0}
+    valid = {
+        "id": "chatcmpl-x",
+        "object": "chat.completion",
+        "created": 0,
+        "model": "m",
+        "choices": [],
+    }
     payload = _format_chat_response(
-        {"object": "chat.completion", "choices": []},
+        valid,
         on_complete=lambda: calls.__setitem__("complete", calls["complete"] + 1),
         on_error=lambda: calls.__setitem__("error", calls["error"] + 1),
     )
-    assert payload == {"object": "chat.completion", "choices": []}
+    assert payload == valid
     assert calls == {"complete": 1, "error": 0}
+
+
+def test_non_streaming_reports_error_when_response_model_invalid():
+    # Jsonable but fails OpenAIChatCompletionResponse validation (missing id/created).
+    # FastAPI would 500 on this after we return, so it must count as an error here.
+    calls = {"complete": 0, "error": 0}
+    with pytest.raises(Exception):
+        _format_chat_response(
+            {"object": "chat.completion", "choices": []},
+            on_complete=lambda: calls.__setitem__("complete", calls["complete"] + 1),
+            on_error=lambda: calls.__setitem__("error", calls["error"] + 1),
+        )
+    assert calls == {"complete": 0, "error": 1}
 
 
 def test_meter_async_reports_on_error():
@@ -324,6 +347,16 @@ def test_disabled_by_kill_switch(clean_mlops_env):
 def test_disabled_by_monitor_false(clean_mlops_env):
     clean_mlops_env.setenv("MLOPS_DEPLOYMENT_ID", "dep123")
     clean_mlops_env.setenv("MONITOR", "false")
+    reporter = MLOpsReporter()
+    reporter.initialize()
+    assert reporter.enabled is False
+
+
+def test_disabled_by_monitor_embedded(clean_mlops_env):
+    # Embedded monitoring means the model self-reports; server-side reporting
+    # here would double-count, so MONITOR_EMBEDDED must disable the reporter.
+    clean_mlops_env.setenv("MLOPS_DEPLOYMENT_ID", "dep123")
+    clean_mlops_env.setenv("MONITOR_EMBEDDED", "true")
     reporter = MLOpsReporter()
     reporter.initialize()
     assert reporter.enabled is False

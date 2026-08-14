@@ -341,9 +341,13 @@ async def get_supported_llm_models(
 def _prediction_count(predictions: Any) -> int:
     """Number of predictions in a structured scoring result (row count).
 
-    Mirrors DRUM's ``num_predictions=len(predictions)``; falls back to 1 for
-    return types without a length.
+    Mirrors DRUM's ``num_predictions=len(predictions)`` for the DataFrame the
+    score hook returns. Guards against ``str``/``bytes`` (whose ``len`` is a
+    character/byte count, not a row count) and length-less returns, treating
+    both as a single prediction.
     """
+    if isinstance(predictions, (str, bytes)):
+        return 1
     try:
         return len(predictions)
     except TypeError:
@@ -368,10 +372,14 @@ def _format_chat_response(
             _meter_sync(_stream_openai_chunks(response), on_complete, on_error),
             media_type="text/event-stream",
         )
-    # Serialize first, then count: a conversion failure must report an error, not
-    # a success, so failed responses never inflate the Total Predictions counter.
+    # Serialize AND validate before counting. FastAPI validates the returned dict
+    # against response_model *after* the handler returns, so a response it would
+    # reject (returning 500 to the client) must report an error here, not a
+    # success -- otherwise failed responses inflate the Total Predictions counter.
+    # Mirrors DRUM, which validates the chat response before reporting.
     try:
         payload = _to_jsonable(response)
+        OpenAIChatCompletionResponse.model_validate(payload)
     except Exception:
         on_error()
         raise

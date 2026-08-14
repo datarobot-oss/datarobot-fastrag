@@ -21,6 +21,12 @@ from typing import Optional
 
 logger = logging.getLogger("fastrag.monitoring")
 
+# Bounded flush window on shutdown. MLOps.shutdown() defaults to timeout_sec=0,
+# which the async reporting worker treats as "join forever" -- a wedged worker
+# would hang the server's lifespan teardown indefinitely. A few seconds is enough
+# to drain the small stats queue while guaranteeing the container can exit.
+_SHUTDOWN_TIMEOUT_SEC = 5
+
 try:  # opentelemetry-instrumentation is already a fastrag dependency
     from opentelemetry.instrumentation.utils import suppress_instrumentation
 except Exception:  # pragma: no cover - fallback if the util moves/renames
@@ -49,8 +55,10 @@ class MLOpsReporter:
 
     Monitoring is enabled when ``MLOPS_DEPLOYMENT_ID`` is present in the
     environment (DataRobot injects it, along with the spooler configuration, at
-    deploy time) and is not explicitly disabled via ``MLOPS_MONITORING_DISABLED``
-    or ``MONITOR=false``.
+    deploy time) and is not explicitly disabled via ``MLOPS_MONITORING_DISABLED``,
+    ``MONITOR=false``, or ``MONITOR_EMBEDDED`` (embedded mode means the model
+    self-reports, so server-side reporting here would double-count -- mirroring
+    DRUM, where MONITOR and MONITOR_EMBEDDED are mutually exclusive).
     """
 
     def __init__(self) -> None:
@@ -67,6 +75,9 @@ class MLOpsReporter:
             return
         if _env_flag("MONITOR") is False:
             logger.info("MLOps monitoring explicitly disabled (MONITOR=false)")
+            return
+        if _env_flag("MONITOR_EMBEDDED"):
+            logger.info("MLOps monitoring disabled: MONITOR_EMBEDDED set (model self-reports)")
             return
 
         deployment_id = os.environ.get("MLOPS_DEPLOYMENT_ID") or os.environ.get("DEPLOYMENT_ID")
@@ -164,7 +175,7 @@ class MLOpsReporter:
         if self._mlops is None:
             return
         try:
-            self._mlops.shutdown()
+            self._mlops.shutdown(timeout_sec=_SHUTDOWN_TIMEOUT_SEC)
         except Exception as exc:
             logger.warning("Error shutting down MLOps: %s", exc)
         finally:
