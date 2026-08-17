@@ -1,6 +1,6 @@
 [project]
 name = "datarobot-fastrag"
-version = "0.2.1"
+version = "0.2.2"
 description = "Async FastAPI runner for DataRobot custom LLM and RAG models"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -116,3 +116,9 @@ max-complexity = 15
 disallow_untyped_defs = true
 disable_error_code = ["import-untyped"]
 plugins = ["pydantic.mypy"]
+
+# datarobot-mlops ships in the deployment image but is not a dev dependency,
+# so it is absent (and stubless) when type-checking locally / in CI.
+[[tool.mypy.overrides]]
+module = ["datarobot_mlops.*"]
+ignore_missing_imports = true

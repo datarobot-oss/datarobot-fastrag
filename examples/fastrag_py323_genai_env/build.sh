@@ -5,7 +5,8 @@
 #
 # Steps:
 #   1. Copy the datarobot-fastrag wheel from the repo's dist/ into this build context
-#      (the Dockerfile COPYs it by name, so it must sit next to the Dockerfile).
+#      (the Dockerfile COPYs it by a version-agnostic glob -- datarobot_fastrag-*.whl --
+#      so the wheel just needs to sit next to the Dockerfile, whatever its version).
 #   2. docker build  -- forced to linux/amd64: the DR runtime and the ubi9 base image
 #      are x86-64, so an arm64 (Apple Silicon) build would not run on the platform.
 #   3. docker save | gzip  -- a portable image tarball, written to the git-ignored dist/.
@@ -14,6 +15,7 @@
 #   ./build.sh                          # build with defaults
 #   IMAGE_TAG=my-env:1 ./build.sh       # override the image tag
 #   PLATFORM=linux/amd64 ./build.sh     # override the target platform
+#   WHEEL_FILE=dist/....whl ./build.sh  # use a specific wheel instead of auto-discovery
 #
 set -euo pipefail
 
@@ -26,21 +28,38 @@ DIST_DIR="${REPO_ROOT}/dist"
 IMAGE_TAG="${IMAGE_TAG:-datarobot-fastrag-genai-env:local}"
 PLATFORM="${PLATFORM:-linux/amd64}"
 
-# --- 1. copy the wheel into the build context --------------------------------
-# The Dockerfile is the source of truth for the exact wheel filename it expects.
-WHEEL_NAME="$(grep -oE 'datarobot_fastrag-[0-9][0-9.]*-py3-none-any\.whl' "${SCRIPT_DIR}/Dockerfile" | head -1)"
-if [[ -z "${WHEEL_NAME}" ]]; then
-  echo "ERROR: could not determine the wheel filename from the Dockerfile." >&2
-  exit 1
+# --- 1. locate and copy the wheel into the build context ---------------------
+# The Dockerfile COPYs the wheel by a version-agnostic glob (datarobot_fastrag-*.whl),
+# so we discover the built wheel in dist/ rather than parsing a pinned version out of
+# the Dockerfile. Set WHEEL_FILE to bypass auto-discovery and use a specific wheel.
+if [[ -n "${WHEEL_FILE:-}" ]]; then
+  SRC_WHEEL="${WHEEL_FILE}"
+  if [[ ! -f "${SRC_WHEEL}" ]]; then
+    echo "ERROR: WHEEL_FILE does not exist: ${SRC_WHEEL}" >&2
+    exit 1
+  fi
+else
+  # Version-agnostic match against dist/. nullglob so a no-match yields an empty array.
+  shopt -s nullglob
+  WHEELS=("${DIST_DIR}"/datarobot_fastrag-*-py3-none-any.whl)
+  shopt -u nullglob
+  if [[ ${#WHEELS[@]} -eq 0 ]]; then
+    echo "ERROR: no datarobot_fastrag wheel found in ${DIST_DIR}" >&2
+    echo "       Build it first from the repo root:  uv build   (or: make build)" >&2
+    exit 1
+  fi
+  if [[ ${#WHEELS[@]} -gt 1 ]]; then
+    # Ambiguous: fall back to the most recently built wheel and warn.
+    SRC_WHEEL="$(ls -t "${DIST_DIR}"/datarobot_fastrag-*-py3-none-any.whl | head -1)"
+    echo ">> WARNING: multiple wheels in ${DIST_DIR}; using the newest (${SRC_WHEEL##*/})." >&2
+    printf '     found: %s\n' "${WHEELS[@]##*/}" >&2
+    echo "     Set WHEEL_FILE=... to pick a specific one." >&2
+  else
+    SRC_WHEEL="${WHEELS[0]}"
+  fi
 fi
 
-SRC_WHEEL="${DIST_DIR}/${WHEEL_NAME}"
-if [[ ! -f "${SRC_WHEEL}" ]]; then
-  echo "ERROR: wheel not found: ${SRC_WHEEL}" >&2
-  echo "       Build it first from the repo root:  make build   (or: uv build)" >&2
-  exit 1
-fi
-
+WHEEL_NAME="$(basename "${SRC_WHEEL}")"
 echo ">> Copying ${WHEEL_NAME} into the build context"
 cp "${SRC_WHEEL}" "${SCRIPT_DIR}/${WHEEL_NAME}"
 # Remove the copied wheel on exit so we don't leave a build artifact in the source tree.

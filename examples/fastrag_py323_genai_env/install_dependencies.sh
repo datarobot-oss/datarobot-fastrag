@@ -8,8 +8,9 @@ set -e
 # uvicorn, pydantic, openai, opentelemetry, numpy, pandas, tiktoken, rouge-score,
 # nltk, ...). The heavy "batteries" (torch, transformers, faiss, onnx, langchain,
 # llama-index, nemoguardrails, vector-DB clients, ...) and the DataRobot MLOps
-# Java monitoring agent are intentionally NOT installed. Add per-model deps to
-# requirements.txt.
+# Java monitoring agent are intentionally NOT installed. Python-only monitoring
+# (the datarobot SDK + datarobot-mlops) is pinned in requirements.txt. Add any
+# per-model deps to requirements.txt.
 
 # No system build tools: the entire required closure installs from prebuilt
 # manylinux wheels (verified on ubi9/python-312-minimal), so gcc/g++ are not
@@ -21,11 +22,11 @@ microdnf clean all
 pip3 install -U pip --no-cache-dir
 pip3 install --no-cache-dir wheel setuptools
 
-# Extra per-model deps (if any) declared in requirements.txt.
+# Per-model deps + Python monitoring, declared in requirements.txt.
 pip3 install -r requirements.txt --no-cache-dir --upgrade-strategy eager
 
 # datarobot-fastrag + its full required closure (incl. datarobot-moderations core).
-pip3 install --no-cache-dir datarobot_fastrag-0.2.1-py3-none-any.whl
+pip3 install --no-cache-dir datarobot_fastrag-*.whl
 
 rm -f requirements.txt
-rm -f datarobot_fastrag-0.2.1-py3-none-any.whl
+rm -f datarobot_fastrag-*.whl

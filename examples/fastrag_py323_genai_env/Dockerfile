@@ -2,7 +2,7 @@ FROM registry.access.redhat.com/ubi9/python-312-minimal
 USER root
 
 COPY requirements.txt requirements.txt
-COPY datarobot_fastrag-0.2.1-py3-none-any.whl datarobot_fastrag-0.2.1-py3-none-any.whl
+COPY datarobot_fastrag-*.whl ./
 COPY install_dependencies.sh install_dependencies.sh
 
 RUN bash install_dependencies.sh
