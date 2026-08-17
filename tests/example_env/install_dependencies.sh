@@ -26,7 +26,7 @@ pip3 install -r requirements.txt \
   --upgrade-strategy eager \
   --extra-index-url https://download.pytorch.org/whl/cpu
 
-pip3 install datarobot_fastrag-*.whl
+pip3 install datarobot-fastrag==0.2.2
 
 mkdir -p $JARS_PATH
 curl -L ${ARTIFACTORY_MAVEN_URL}/datarobot-mlops/${DATAROBOT_MLOPS_VERSION}/datarobot-mlops-${DATAROBOT_MLOPS_VERSION}.jar --output ${JARS_PATH}/datarobot-mlops-${DATAROBOT_MLOPS_VERSION}.jar && \
@@ -37,4 +37,3 @@ microdnf clean all
 
 rm -rf dep.constraints
 rm -rf requirements.txt
-rm datarobot_fastrag-*.whl

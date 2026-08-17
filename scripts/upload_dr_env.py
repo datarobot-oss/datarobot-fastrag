@@ -23,7 +23,6 @@ import argparse
 import json
 import os
 import shutil
-import subprocess
 import sys
 import tarfile
 import tempfile
@@ -35,7 +34,6 @@ import requests
 REPO_ROOT = Path(__file__).parent.parent
 ENV_DIR = REPO_ROOT / "examples" / "fastrag_py323_genai_env"
 ENV_INFO = ENV_DIR / "env_info.json"
-DIST_DIR = REPO_ROOT / "dist"
 PERSONAL_ENV_CONFIG = Path.home() / ".config" / "fastrag" / "personal_env.json"
 
 POLL_INTERVAL = 10
@@ -73,25 +71,12 @@ def _load_dr_credentials() -> tuple[str, str]:
     return endpoint, token
 
 
-def _build_wheel() -> Path:
-    print("Building wheel...")
-    subprocess.run(["uv", "build", "--wheel"], cwd=REPO_ROOT, check=True)
-    wheels = sorted(DIST_DIR.glob("datarobot_fastrag-*.whl"))
-    if not wheels:
-        print("ERROR: no wheel found in dist/ after build", file=sys.stderr)
-        sys.exit(1)
-    wheel = wheels[-1]
-    print(f"  Built: {wheel.name}")
-    return wheel
-
-
-def _make_tarball(wheel: Path) -> Path:
+def _make_tarball() -> Path:
+    # The env installs datarobot-fastrag from PyPI (see install_dependencies.sh),
+    # so the Docker context is just the env dir as-is — no wheel to build or inject.
     tmp = Path(tempfile.mkdtemp())
     context = tmp / "context"
     shutil.copytree(ENV_DIR, context)
-    for old_wheel in context.glob("datarobot_fastrag-*.whl"):
-        old_wheel.unlink()
-    shutil.copy2(wheel, context / wheel.name)
     tarball = tmp / "context.tar.gz"
     with tarfile.open(tarball, "w:gz") as tar:
         tar.add(context, arcname=".")
@@ -221,8 +206,7 @@ def main() -> None:
     else:
         env_id, env_name = _get_or_create_personal_env(endpoint, token)
 
-    wheel = _build_wheel()
-    tarball = _make_tarball(wheel)
+    tarball = _make_tarball()
     version = _get_version()
 
     version_id = _upload(endpoint, token, env_id, tarball, label=version)

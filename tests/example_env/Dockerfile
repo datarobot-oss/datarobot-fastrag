@@ -5,7 +5,6 @@ RUN ln -s /usr/bin/dnf /usr/bin/microdnf
 COPY requirements.txt requirements.txt
 
 COPY dep.constraints dep.constraints
-COPY datarobot_fastrag-*.whl ./
 
 COPY install_dependencies.sh install_dependencies.sh
 

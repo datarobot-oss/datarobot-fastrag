@@ -26,7 +26,7 @@ pip3 install -r requirements.txt \
   --upgrade-strategy eager \
   --extra-index-url https://download.pytorch.org/whl/cpu
 
-pip3 install datarobot_fastrag-*.whl
+pip3 install datarobot-fastrag==0.2.2
 # datarobot-moderations is installed as a dependency of datarobot-fastrag
 
 mkdir -p $JARS_PATH
@@ -38,4 +38,3 @@ microdnf clean all
 
 rm -rf dep.constraints
 rm -rf requirements.txt
-rm datarobot_fastrag-*.whl
