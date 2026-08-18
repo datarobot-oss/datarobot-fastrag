@@ -94,7 +94,7 @@ class TracedRoute(APIRoute):
 
 
 class PredictionStatsMiddleware:
-    """Report one record per prediction route, timed until the last response body chunk.
+    """Report one record per chat completion, timed until the last response body chunk.
 
     Matches on the route endpoint rather than URL path so ``URL_PREFIX`` / proxy
     ``root_path`` do not miss counts.
@@ -104,7 +104,7 @@ class PredictionStatsMiddleware:
         self, app: ASGIApp, endpoints: frozenset[Callable[..., Any]] | None = None
     ) -> None:
         self._app = app
-        self._endpoints = PREDICTION_ENDPOINTS if endpoints is None else endpoints
+        self._endpoints = REPORTED_ENDPOINTS if endpoints is None else endpoints
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
@@ -119,7 +119,6 @@ class PredictionStatsMiddleware:
             await self._app(scope, receive, send)
             return
 
-        state: dict[str, Any] = scope.setdefault("state", {})
         started = time.perf_counter()
         status = 500
         reported = False
@@ -131,10 +130,8 @@ class PredictionStatsMiddleware:
             reported = True
             if 300 <= final_status < 400:
                 return
-            failed = final_status >= 400
-            num_predictions = 0 if failed else int(state.get("num_predictions", 1))
             reporter.report(
-                num_predictions=num_predictions,
+                num_predictions=0 if final_status >= 400 else 1,
                 execution_time_ms=(time.perf_counter() - started) * 1000,
                 user_error=400 <= final_status < 500,
                 system_error=final_status >= 500,
@@ -243,8 +240,6 @@ async def predict(
     content, _ = await read_structured_payload(request, X)
     df = read_csv_or_raise(content)
 
-    request.state.num_predictions = len(df)
-
     _ensure_hook_available(model_adapter, HookName.SCORE)
 
     kwargs = {
@@ -345,7 +340,7 @@ async def predict_unstructured(
     return response
 
 
-PREDICTION_ENDPOINTS = frozenset({predict, chat_completions})
+REPORTED_ENDPOINTS = frozenset({chat_completions})
 
 
 @router.get("/capabilities/", response_model=CapabilitiesResponse)
