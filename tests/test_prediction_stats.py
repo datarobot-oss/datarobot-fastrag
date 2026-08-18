@@ -320,6 +320,70 @@ def test_client_error_is_reported_as_a_user_error(stats_client):
     assert record["systemError"] is False
 
 
+def test_responses_claim_the_drum_version_that_reports_its_own_chat_monitoring(stats_client):
+    """Without it DataRobot's gateway files a second record for every 5xx."""
+    client, _ = stats_client
+    ok = client.post("/chat/completions", json={"model": "test-model", "messages": []})
+    assert ok.status_code == 200
+    assert ok.headers["x-drum-version"] == "1.17.12"
+
+    failed = client.post("/chat/completions", json={"messages": "not-a-list"})
+    assert failed.status_code == 422
+    assert failed.headers["x-drum-version"] == "1.17.12"
+
+
+def test_hook_failure_is_reported_once_and_stamped(stats_client, monkeypatch):
+    client, collector = stats_client
+
+    async def boom(*args, **kwargs):
+        raise RuntimeError("model exploded")
+
+    monkeypatch.setattr(client.app.state.model_adapter, "chat", boom)
+    response = client.post("/chat/completions", json={"model": "m", "messages": []})
+    assert response.status_code == 500
+    assert response.headers["x-drum-version"] == "1.17.12"
+    (record,) = wait_for_records(collector)
+    assert record["numPredictions"] == 0
+    assert record["systemError"] is True
+
+
+def test_crash_outside_the_middleware_is_still_stamped(monkeypatch, test_model_dir):
+    """A handler registered for Exception answers above every user middleware."""
+    monkeypatch.setenv("CODE_DIR", test_model_dir)
+    monkeypatch.setenv("RUNTIME_PARAMS_FILE", os.path.join(test_model_dir, "model-metadata.yaml"))
+    collector = Collector()
+
+    async def fake_start_reporter():
+        reporter = make_reporter(collector)
+        await reporter.start()
+        return reporter
+
+    def boom(response):
+        raise RuntimeError("not an ApiError")
+
+    monkeypatch.setattr(server_module, "start_reporter", fake_start_reporter)
+    monkeypatch.setattr(server_module, "_format_chat_response", boom)
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.post("/chat/completions", json={"model": "m", "messages": []})
+    assert response.status_code == 500
+    assert response.headers["x-drum-version"] == "1.17.12"
+
+
+def test_no_drum_version_claimed_when_reporting_is_off(monkeypatch, test_model_dir):
+    """An unreported deployment must keep DataRobot's own 5xx coverage."""
+    monkeypatch.setenv("CODE_DIR", test_model_dir)
+    monkeypatch.setenv("RUNTIME_PARAMS_FILE", os.path.join(test_model_dir, "model-metadata.yaml"))
+
+    async def no_reporter():
+        return None
+
+    monkeypatch.setattr(server_module, "start_reporter", no_reporter)
+    with TestClient(app) as client:
+        response = client.post("/chat/completions", json={"model": "m", "messages": []})
+        assert response.status_code == 200
+        assert "x-drum-version" not in response.headers
+
+
 def test_health_checks_are_not_reported(stats_client):
     client, collector = stats_client
     assert client.get("/health/").status_code == 200

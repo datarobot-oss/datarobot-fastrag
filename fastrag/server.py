@@ -74,6 +74,14 @@ def _ensure_hook_available(
 
 URL_PREFIX = os.environ.get("URL_PREFIX", "").rstrip("/")
 
+# DRUM stamps its version on every response, and DataRobot's predictions gateway reads it
+# to decide whether the model reports its own chat monitoring: a version at or below the
+# gateway's PREDICTIONS_GATEWAY_DRUM_MONITORING_UNTIL (1.17.12 by default) means "the model
+# reports it". With no header the gateway assumes any 5xx went unreported and files a record
+# of its own that carries one prediction
+DRUM_VERSION = os.environ.get("FASTRAG_DRUM_VERSION", "1.17.12")
+DRUM_VERSION_HEADER_NAME = b"x-drum-version"
+
 
 class TracedRoute(APIRoute):
     def get_route_handler(self) -> Callable[[Request], Coroutine[Any, Any, Response]]:
@@ -141,6 +149,14 @@ class PredictionStatsMiddleware:
             nonlocal status
             if message["type"] == "http.response.start":
                 status = int(message["status"])
+                message["headers"] = [
+                    *(
+                        header
+                        for header in message.get("headers", [])
+                        if header[0].lower() != DRUM_VERSION_HEADER_NAME
+                    ),
+                    (DRUM_VERSION_HEADER_NAME, DRUM_VERSION.encode()),
+                ]
             await send(message)
             if message["type"] == "http.response.body" and not message.get("more_body", False):
                 report(status)
@@ -459,7 +475,12 @@ async def handle_api_error(request: Request, exc: ApiError) -> JSONResponse:
 
 async def handle_unexpected_error(request: Request, exc: Exception) -> JSONResponse:
     logger.exception("Unhandled server error", exc_info=exc)
-    return JSONResponse(status_code=500, content={"detail": "Internal server error."})
+    response = JSONResponse(status_code=500, content={"detail": "Internal server error."})
+    # This response is built by ServerErrorMiddleware, outside PredictionStatsMiddleware,
+    # so it has to be stamped here for the gateway to leave the record to us.
+    if getattr(request.app.state, "prediction_stats", None) is not None:
+        response.headers[DRUM_VERSION_HEADER_NAME.decode()] = DRUM_VERSION
+    return response
 
 
 async def _await_or_api_error(awaitable: Awaitable[Any], detail: str, log_message: str) -> Any:
