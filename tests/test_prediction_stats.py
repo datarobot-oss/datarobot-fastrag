@@ -300,20 +300,20 @@ def test_chat_request_reports_one_prediction(stats_client):
     assert record["executionTime"] > 0
 
 
-def test_predict_reports_one_prediction_per_row(stats_client):
+def test_structured_predictions_are_not_reported(stats_client):
+    """DataRobot's prediction API counts /predict/ rows; reporting them here doubles them."""
     client, collector = stats_client
     files = {"X": ("test.csv", b"a,promptText\n1,foo\n2,bar\n3,baz", "text/csv")}
     response = client.post("/predict/", files=files)
     assert response.status_code == 200
-    (record,) = wait_for_records(collector)
-    assert record["numPredictions"] == 3
+    time.sleep(0.2)
+    assert collector.records == []
 
 
 def test_client_error_is_reported_as_a_user_error(stats_client):
     client, collector = stats_client
-    files = {"X": ("test.csv", b"", "text/csv")}
-    response = client.post("/predict/", files=files)
-    assert response.status_code == 400
+    response = client.post("/chat/completions", json={"messages": "not-a-list"})
+    assert response.status_code == 422
     (record,) = wait_for_records(collector)
     assert record["numPredictions"] == 0
     assert record["userError"] is True
@@ -324,5 +324,6 @@ def test_health_checks_are_not_reported(stats_client):
     client, collector = stats_client
     assert client.get("/health/").status_code == 200
     assert client.get("/info/").status_code == 200
+    assert client.get("/capabilities/").status_code == 200
     time.sleep(0.2)
     assert collector.records == []
