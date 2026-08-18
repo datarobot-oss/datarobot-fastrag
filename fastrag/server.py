@@ -94,18 +94,10 @@ class TracedRoute(APIRoute):
 
 
 class PredictionStatsMiddleware:
-    """Report one prediction stats record per prediction request.
+    """Report one record per prediction route, timed until the last response body chunk.
 
-    Raw ASGI rather than an ``http`` middleware on purpose: a streaming chat completion
-    is only finished once the last ``http.response.body`` message has gone out, while
-    ``call_next`` returns as soon as the headers do. Measuring there would report the
-    time to the first chunk instead of the time to serve the request.
-
-    Whether a request counts as a prediction is decided by the route that handled it
-    (``PREDICTION_ENDPOINTS``, below the route definitions), never by its path. Request
-    paths shift with ``URL_PREFIX`` and with the ``root_path`` a proxy mounts the app
-    under, and Starlette itself routes on the path with ``root_path`` removed — so
-    matching on ``scope["path"]`` silently misses real predictions.
+    Matches on the route endpoint rather than URL path so ``URL_PREFIX`` / proxy
+    ``root_path`` do not miss counts.
     """
 
     def __init__(
@@ -138,10 +130,8 @@ class PredictionStatsMiddleware:
                 return
             reported = True
             if 300 <= final_status < 400:
-                # A redirect is not a prediction; the client will send the real request.
                 return
             failed = final_status >= 400
-            # Handlers that score several rows set request.state.num_predictions.
             num_predictions = 0 if failed else int(state.get("num_predictions", 1))
             reporter.report(
                 num_predictions=num_predictions,
@@ -160,8 +150,7 @@ class PredictionStatsMiddleware:
 
         try:
             await self._app(scope, receive, send_and_report)
-        except BaseException:
-            # Unhandled errors are turned into a 500 further out, past this middleware.
+        except Exception:
             report(500)
             raise
 
@@ -254,7 +243,6 @@ async def predict(
     content, _ = await read_structured_payload(request, X)
     df = read_csv_or_raise(content)
 
-    # One prediction per scored row, as DRUM reported it.
     request.state.num_predictions = len(df)
 
     _ensure_hook_available(model_adapter, HookName.SCORE)
@@ -357,8 +345,6 @@ async def predict_unstructured(
     return response
 
 
-# Requests handled by these routes count as predictions. The unstructured handler is
-# left out, matching DRUM, where monitoring "can not be used in unstructured mode".
 PREDICTION_ENDPOINTS = frozenset({predict, chat_completions})
 
 
@@ -507,7 +493,6 @@ def main() -> FastAPI:
     app.exception_handler(ApiError)(handle_api_error)
     app.exception_handler(Exception)(handle_unexpected_error)
     app.middleware("http")(attach_trace_context)
-    # Added last, so it is the outermost middleware and times the whole request.
     app.add_middleware(PredictionStatsMiddleware)
     app.include_router(router)
     return app

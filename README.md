@@ -170,28 +170,11 @@ Configuration can be provided via CLI arguments or environment variables:
 
 ### Prediction stats reporting
 
-When a deployment sets `MONITOR`, FastRAG reports each prediction request to DataRobot, so
-the deployment's Total Predictions and error counts stay accurate. This is the same
-environment contract DRUM reads, and DataRobot injects these variables into the model
-container; nothing needs configuring by hand.
-
-| Environment Variable | Description |
-|----------------------|-------------|
-| `MONITOR` | Enables reporting when truthy. Reporting is off otherwise. |
-| `EXTERNAL_WEB_SERVER_URL` | DataRobot endpoint to report to. `DATAROBOT_ENDPOINT` and `MLOPS_SERVICE_URL` are also accepted. |
-| `API_TOKEN` | DataRobot API token. `DATAROBOT_API_TOKEN` and `MLOPS_API_TOKEN` are also accepted. |
-| `DEPLOYMENT_ID` | Deployment to report against. `MLOPS_DEPLOYMENT_ID` is also accepted. |
-| `MODEL_ID` | Model to attribute the predictions to. `MLOPS_MODEL_ID` is also accepted. |
-
-Records are queued and posted in batches of up to 500, or every 5 seconds, whichever comes
-first — the same batching the MLOps agent applies. Reporting never blocks a request: the
-queue is drained by a background task, records are discarded if the queue fills up or the
-API keeps rejecting them, and whatever is queued is flushed on shutdown.
-
-Chat completions count as one prediction each and are timed until the last streamed chunk
-has been sent. Requests to `/predict/` count one prediction per scored row. Failed requests
-are reported with zero predictions and a `userError` (4xx) or `systemError` (5xx) flag —
-which DRUM never set, so error counts are new data rather than a restored behavior.
+When `MONITOR` is set, FastRAG reports prediction counts to DataRobot using the same env
+vars as DRUM (`EXTERNAL_WEB_SERVER_URL` / `API_TOKEN` / `DEPLOYMENT_ID` / `MODEL_ID`;
+`MLOPS_*` aliases are accepted). Records are queued and POSTed in batches; reporting
+never blocks a request. Chat counts as 1, `/predict/` counts one per row, and 4xx/5xx
+are reported as `userError` / `systemError` with 0 predictions.
 
 ## Development
 
