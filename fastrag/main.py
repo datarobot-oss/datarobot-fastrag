@@ -48,7 +48,9 @@ def run_server(args: argparse.Namespace) -> None:
         if hasattr(settings, key) and value is not None:
             setattr(settings, key, value)
 
-    logging.basicConfig()
+    # Without an explicit level the root logger stays at WARNING, which silently hides
+    # every logger.info in the package -- including whether stats reporting is working.
+    logging.basicConfig(level=logging.DEBUG if settings.verbose else logging.INFO)
     logger = logging.getLogger("fastrag.main")
 
     # Set up environment variables via Settings helper, so any overirdes are propagated
