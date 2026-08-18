@@ -170,11 +170,12 @@ Configuration can be provided via CLI arguments or environment variables:
 
 ### Prediction stats reporting
 
-When `MONITOR` is set, FastRAG reports prediction counts to DataRobot using the same env
-vars as DRUM (`EXTERNAL_WEB_SERVER_URL` / `API_TOKEN` / `DEPLOYMENT_ID` / `MODEL_ID`;
-`MLOPS_*` aliases are accepted). Records are queued and POSTed in batches; reporting
-never blocks a request. Chat counts as 1, `/predict/` counts one per row, and 4xx/5xx
-are reported as `userError` / `systemError` with 0 predictions.
+FastRAG reports prediction counts to DataRobot using the same env vars as DRUM
+(`EXTERNAL_WEB_SERVER_URL` / `API_TOKEN` / `DEPLOYMENT_ID` / `MODEL_ID`; `MLOPS_*`
+aliases are accepted). Records are queued and POSTed in batches; reporting never
+blocks a request. Chat counts as 1, `/predict/` counts one per row, and 4xx/5xx
+are reported as `userError` / `systemError` with 0 predictions. Reporting is off
+only when those credentials are missing (typical for local runs).
 
 ## Development
 

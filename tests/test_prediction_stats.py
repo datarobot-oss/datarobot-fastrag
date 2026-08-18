@@ -16,7 +16,6 @@ from fastrag.server import PredictionStatsMiddleware
 from fastrag.server import app
 
 DRUM_ENV = {
-    "MONITOR": "1",
     "EXTERNAL_WEB_SERVER_URL": "https://app.datarobot.test",
     "API_TOKEN": "token-abc",
     "DEPLOYMENT_ID": "deployment-1",
@@ -76,13 +75,6 @@ def stats_app(reporter, endpoint, path="/chat/completions"):
     return test_app
 
 
-def test_config_is_off_without_monitor(monkeypatch):
-    for name, value in DRUM_ENV.items():
-        monkeypatch.setenv(name, value)
-    monkeypatch.delenv("MONITOR")
-    assert StatsConfig.from_env() is None
-
-
 def test_config_is_off_when_credentials_are_missing(monkeypatch):
     for name, value in DRUM_ENV.items():
         monkeypatch.setenv(name, value)
@@ -104,7 +96,6 @@ def test_config_reads_the_drum_environment(monkeypatch):
 def test_config_accepts_mlops_prefixed_names(monkeypatch):
     for name in DRUM_ENV:
         monkeypatch.delenv(name, raising=False)
-    monkeypatch.setenv("MONITOR", "true")
     monkeypatch.setenv("MLOPS_SERVICE_URL", "https://app.datarobot.test/")
     monkeypatch.setenv("MLOPS_API_TOKEN", "token-abc")
     monkeypatch.setenv("MLOPS_DEPLOYMENT_ID", "deployment-2")

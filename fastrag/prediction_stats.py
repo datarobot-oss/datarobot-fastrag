@@ -1,4 +1,4 @@
-"""Non-blocking prediction-stats reporter. Enabled when MONITOR is set."""
+"""Non-blocking prediction-stats reporter."""
 
 import asyncio
 import logging
@@ -36,10 +36,6 @@ def _first_env(*names: str) -> str | None:
         if value:
             return value
     return None
-
-
-def _is_truthy(value: str | None) -> bool:
-    return (value or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,10 +78,6 @@ class StatsConfig:
 
     @classmethod
     def from_env(cls) -> "StatsConfig | None":
-        if not _is_truthy(os.environ.get("MONITOR")):
-            logger.info("Prediction stats reporting is off (MONITOR is not set).")
-            return None
-
         endpoint = _first_env("EXTERNAL_WEB_SERVER_URL", "DATAROBOT_ENDPOINT", "MLOPS_SERVICE_URL")
         api_token = _first_env("API_TOKEN", "DATAROBOT_API_TOKEN", "MLOPS_API_TOKEN")
         deployment_id = _first_env("DEPLOYMENT_ID", "MLOPS_DEPLOYMENT_ID")
@@ -100,10 +92,7 @@ class StatsConfig:
                 )
                 if not value
             ]
-            logger.warning(
-                "MONITOR is set but prediction stats reporting is off; missing %s.",
-                ", ".join(missing),
-            )
+            logger.info("Prediction stats reporting is off; missing %s.", ", ".join(missing))
             return None
 
         return cls(
