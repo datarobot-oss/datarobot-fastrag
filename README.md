@@ -177,6 +177,14 @@ vars as DRUM (`EXTERNAL_WEB_SERVER_URL` / `API_TOKEN` / `DEPLOYMENT_ID` /
 are queued and POSTed in batches; reporting never blocks a request. Reporting is
 off only when those credentials are missing (typical for local runs).
 
+Responses carry an `X-Drum-Version` header (`1.17.12`, overridable with
+`FASTRAG_DRUM_VERSION`) whenever reporting is on. DataRobot's predictions gateway
+reads that header to decide whether the model reports its own chat monitoring; with
+no header it assumes any 5xx went unreported and files a record of its own that
+carries one prediction, so a failed chat request would land twice in `Total
+Requests` and once in `Total Predictions`. The header is omitted when reporting is
+off, which keeps the gateway's coverage for deployments that report nothing.
+
 Structured `/predict/` requests are deliberately **not** reported. Those go
 through DataRobot's prediction API, which counts the scored rows itself and feeds
 them into deployment stats.
