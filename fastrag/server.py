@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import time
 from collections.abc import AsyncIterable
 from collections.abc import AsyncIterator
 from collections.abc import Awaitable
@@ -24,12 +25,19 @@ from fastapi.routing import APIRoute
 from opentelemetry import context as otel_context
 from opentelemetry import propagate
 from opentelemetry import trace
+from starlette.types import ASGIApp
+from starlette.types import Message
+from starlette.types import Receive
+from starlette.types import Scope
+from starlette.types import Send
 
 from .loader import HookLoader
 from .loader import HookName
 from .model_adapter import ModelAdapter
 from .model_metadata import ModelMetadata
 from .model_metadata import TargetType
+from .prediction_stats import PredictionStatsReporter
+from .prediction_stats import start_reporter
 from .schemas import CapabilitiesResponse
 from .schemas import HealthResponse
 from .schemas import InfoResponse
@@ -85,6 +93,79 @@ class TracedRoute(APIRoute):
         return traced_route_handler
 
 
+class PredictionStatsMiddleware:
+    """Report one prediction stats record per prediction request.
+
+    Raw ASGI rather than an ``http`` middleware on purpose: a streaming chat completion
+    is only finished once the last ``http.response.body`` message has gone out, while
+    ``call_next`` returns as soon as the headers do. Measuring there would report the
+    time to the first chunk instead of the time to serve the request.
+
+    Whether a request counts as a prediction is decided by the route that handled it
+    (``PREDICTION_ENDPOINTS``, below the route definitions), never by its path. Request
+    paths shift with ``URL_PREFIX`` and with the ``root_path`` a proxy mounts the app
+    under, and Starlette itself routes on the path with ``root_path`` removed — so
+    matching on ``scope["path"]`` silently misses real predictions.
+    """
+
+    def __init__(
+        self, app: ASGIApp, endpoints: frozenset[Callable[..., Any]] | None = None
+    ) -> None:
+        self._app = app
+        self._endpoints = PREDICTION_ENDPOINTS if endpoints is None else endpoints
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self._app(scope, receive, send)
+            return
+
+        state_holder = scope.get("app")
+        reporter: PredictionStatsReporter | None = getattr(
+            getattr(state_holder, "state", None), "prediction_stats", None
+        )
+        if reporter is None:
+            await self._app(scope, receive, send)
+            return
+
+        state: dict[str, Any] = scope.setdefault("state", {})
+        started = time.perf_counter()
+        status = 500
+        reported = False
+
+        def report(final_status: int) -> None:
+            nonlocal reported
+            if reported or scope.get("endpoint") not in self._endpoints:
+                return
+            reported = True
+            if 300 <= final_status < 400:
+                # A redirect is not a prediction; the client will send the real request.
+                return
+            failed = final_status >= 400
+            # Handlers that score several rows set request.state.num_predictions.
+            num_predictions = 0 if failed else int(state.get("num_predictions", 1))
+            reporter.report(
+                num_predictions=num_predictions,
+                execution_time_ms=(time.perf_counter() - started) * 1000,
+                user_error=400 <= final_status < 500,
+                system_error=final_status >= 500,
+            )
+
+        async def send_and_report(message: Message) -> None:
+            nonlocal status
+            if message["type"] == "http.response.start":
+                status = int(message["status"])
+            await send(message)
+            if message["type"] == "http.response.body" and not message.get("more_body", False):
+                report(status)
+
+        try:
+            await self._app(scope, receive, send_and_report)
+        except BaseException:
+            # Unhandled errors are turned into a 500 further out, past this middleware.
+            report(500)
+            raise
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings: Settings = load_settings()
@@ -103,10 +184,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     model_adapter = await hook_loader.load()
     app.state.model_adapter = model_adapter
 
+    prediction_stats: PredictionStatsReporter | None = await start_reporter()
+    app.state.prediction_stats = prediction_stats
+
     try:
         yield
     finally:
         model_adapter.shutdown()
+        if prediction_stats is not None:
+            await prediction_stats.aclose()
         if otel_providers is not None:
             otel_providers.trace_provider.shutdown()
             otel_providers.metric_provider.shutdown()
@@ -167,6 +253,9 @@ async def predict(
 ) -> PredictionResponse:
     content, _ = await read_structured_payload(request, X)
     df = read_csv_or_raise(content)
+
+    # One prediction per scored row, as DRUM reported it.
+    request.state.num_predictions = len(df)
 
     _ensure_hook_available(model_adapter, HookName.SCORE)
 
@@ -266,6 +355,11 @@ async def predict_unstructured(
         response.headers["Content-Type"] = content_type
 
     return response
+
+
+# Requests handled by these routes count as predictions. The unstructured handler is
+# left out, matching DRUM, where monitoring "can not be used in unstructured mode".
+PREDICTION_ENDPOINTS = frozenset({predict, chat_completions})
 
 
 @router.get("/capabilities/", response_model=CapabilitiesResponse)
@@ -413,6 +507,8 @@ def main() -> FastAPI:
     app.exception_handler(ApiError)(handle_api_error)
     app.exception_handler(Exception)(handle_unexpected_error)
     app.middleware("http")(attach_trace_context)
+    # Added last, so it is the outermost middleware and times the whole request.
+    app.add_middleware(PredictionStatsMiddleware)
     app.include_router(router)
     return app
 
