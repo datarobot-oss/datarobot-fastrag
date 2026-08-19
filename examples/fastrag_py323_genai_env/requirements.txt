@@ -44,9 +44,7 @@ pyhumps==3.8.0
 pypdf>=6.6.0
 
 httpx==0.28.1
-# Keep this in sync with version in worker/pyproject.toml
-# datarobot-moderations is installed directly from the local wheel below
-# fastembed version is managed by the moderations wheel install
+# datarobot-moderations is installed as a dependency of datarobot-fastrag from PyPI
 
 backoff>=2.2.1
 pinecone==7.3.0
