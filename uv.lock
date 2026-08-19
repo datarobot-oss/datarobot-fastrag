@@ -459,7 +459,7 @@ integration = [{ name = "datarobot-moderations", specifier = ">=11.2.47" }]
 
 [[package]]
 name = "datarobot-moderations"
-version = "11.2.47"
+version = "11.3.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aiohttp" },
@@ -478,7 +478,7 @@ dependencies = [
     { name = "tiktoken" },
 ]
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/87/20/de8c6739e29a92afb28e686a465251cb989d1e405c26fccdb521f80c8540/datarobot_moderations-11.2.47-py3-none-any.whl", hash = "sha256:ae6a0ddb243704e99e27395f60b8025bfe6b0a72bd011372553fadabb81c8ecf", size = 177480, upload-time = "2026-07-24T13:14:03.425Z" },
+    { url = "https://files.pythonhosted.org/packages/d8/9c/0601999212110f9db405343473f27caeee735ec4b63b79ac6b6669d2480f/datarobot_moderations-11.3.1-py3-none-any.whl", hash = "sha256:26319856df6a358b4b69a5dd352a3d36c35c77bcd70cb0056317a34a76bbd5a9", size = 176985, upload-time = "2026-08-14T07:54:30.438Z" },
 ]
 
 [[package]]
@@ -1632,7 +1632,7 @@ name = "pexpect"
 version = "4.9.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "ptyprocess", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
+    { name = "ptyprocess" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/42/92/cc564bf6381ff43ce1f4d06852fc19a2f11d180f23dc32d9588bee2f149d/pexpect-4.9.0.tar.gz", hash = "sha256:ee7d41123f3c9911050ea2c2dac107568dc43b2d3b0c7557a33212c398ead30f", size = 166450, upload-time = "2023-11-25T09:07:26.339Z" }
 wheels = [
