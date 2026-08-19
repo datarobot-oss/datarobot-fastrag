@@ -5,19 +5,14 @@ RUN ln -s /usr/bin/dnf /usr/bin/microdnf
 COPY requirements.txt requirements.txt
 
 COPY dep.constraints dep.constraints
-COPY datarobot_fastrag-0.2.1-py3-none-any.whl datarobot_fastrag-0.2.1-py3-none-any.whl
+COPY datarobot_fastrag-*.whl ./
 
 COPY install_dependencies.sh install_dependencies.sh
 
 ENV ANNOY_COMPILER_ARGS="-D_CRT_SECURE_NO_WARNINGS,-DANNOYLIB_MULTITHREADED_BUILD,-march=x86-64"
 ENV DEEPEVAL_TELEMETRY_OPT_OUT="YES"
-ENV JARS_PATH=/opt/jars
-ENV DATAROBOT_MLOPS_VERSION=11.1.0
 
 RUN bash install_dependencies.sh
-
-ENV DRUM_JAVA_SHARED_JARS=$JARS_PATH/*
-ENV MLOPS_MONITORING_AGENT_JAR_PATH=$JARS_PATH/mlops-agent-${DATAROBOT_MLOPS_VERSION}.jar
 
 RUN python3.12 -c "import nltk; nltk.download('wordnet'); nltk.download('omw-1.4'); nltk.download('punkt_tab'); "
 

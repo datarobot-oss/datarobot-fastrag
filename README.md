@@ -11,6 +11,7 @@ Existing DRUM `custom.py` files work without modification — sync hooks are run
 - OpenAI-compatible chat completions API (`/v1/chat/completions`, streaming included)
 - Predict/score API (`/predict/`)
 - OpenTelemetry instrumentation built in
+- Deployment prediction stats (Total Predictions and errors) reported to DataRobot
 - LLM safety guardrails via [datarobot-moderations](https://pypi.org/project/datarobot-moderations/)
 
 ### Not implemented
@@ -166,6 +167,27 @@ Configuration can be provided via CLI arguments or environment variables:
 | `--address` | `ADDRESS` | Host and port to bind to (e.g., `0.0.0.0:8080`). |
 | `--max-workers` | `MAX_WORKERS` | Number of worker processes. |
 | `--verbose` | `VERBOSE` | Enable verbose logging. |
+
+### Prediction stats reporting
+
+FastRAG reports chat-completion prediction counts to DataRobot using the same env
+vars as DRUM (`EXTERNAL_WEB_SERVER_URL` / `API_TOKEN` / `DEPLOYMENT_ID` /
+`MODEL_ID`; `MLOPS_*` aliases are accepted). Each chat request counts as 1, and
+4xx/5xx are reported as `userError` / `systemError` with 0 predictions. Records
+are queued and POSTed in batches; reporting never blocks a request. Reporting is
+off only when those credentials are missing (typical for local runs).
+
+Responses carry an `X-Drum-Version` header (`1.17.12`, overridable with
+`FASTRAG_DRUM_VERSION`) whenever reporting is on. DataRobot's predictions gateway
+reads that header to decide whether the model reports its own chat monitoring; with
+no header it assumes any 5xx went unreported and files a record of its own that
+carries one prediction, so a failed chat request would land twice in `Total
+Requests` and once in `Total Predictions`. The header is omitted when reporting is
+off, which keeps the gateway's coverage for deployments that report nothing.
+
+Structured `/predict/` requests are deliberately **not** reported. Those go
+through DataRobot's prediction API, which counts the scored rows itself and feeds
+them into deployment stats.
 
 ## Development
 
