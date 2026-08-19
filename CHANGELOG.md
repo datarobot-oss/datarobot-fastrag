@@ -6,9 +6,10 @@ All notable changes to `datarobot-fastrag` are recorded here. The format follows
 
 <!-- python-semantic-release inserts generated sections directly below the flag on the
      next line (`changelog.insertion_flag`), so keep it above the newest entry. -->
+
 <!-- version list -->
 
-## v0.2.2 (unreleased)
+## v0.2.2 (2026-08-19)
 
 - Chat-completion prediction stats reporting for deployments
 - Dropped `datarobot-mlops` from example and test execution environments
