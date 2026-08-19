@@ -17,7 +17,13 @@ pip3 install -r requirements.txt \
   --upgrade-strategy eager \
   --extra-index-url https://download.pytorch.org/whl/cpu
 
-pip3 install datarobot_fastrag-0.2.1-py3-none-any.whl
+shopt -s nullglob
+wheels=(datarobot_fastrag-*.whl)
+if [ ${#wheels[@]} -ne 1 ]; then
+  echo "expected exactly one datarobot_fastrag wheel, found: ${wheels[*]:-none}" >&2
+  exit 1
+fi
+pip3 install "${wheels[0]}"
 # datarobot-moderations is installed as a dependency of datarobot-fastrag
 
 microdnf upgrade
@@ -25,4 +31,4 @@ microdnf clean all
 
 rm -rf dep.constraints
 rm -rf requirements.txt
-rm datarobot_fastrag-0.2.1-py3-none-any.whl
+rm -f "${wheels[0]}"
