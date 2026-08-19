@@ -161,6 +161,36 @@ async def test_reporting_is_dropped_rather_than_blocking_when_the_queue_is_full(
     assert reporter.dropped == 3
 
 
+async def test_aclose_flushes_queued_records_when_the_queue_is_full():
+    collector = Collector()
+    reporter = make_reporter(collector, queue_max_size=3, max_batch=1, flush_interval_s=0.01)
+    hold = asyncio.Event()
+    started = asyncio.Event()
+    original_post = reporter._post
+
+    async def held_post(batch):
+        started.set()
+        await hold.wait()
+        await original_post(batch)
+
+    reporter._post = held_post
+    await reporter.start()
+    reporter.report(num_predictions=1, execution_time_ms=1.0)
+    await asyncio.wait_for(started.wait(), timeout=1)
+    for _ in range(3):
+        reporter.report(num_predictions=1, execution_time_ms=1.0)
+    assert reporter._queue.full()
+
+    closing = asyncio.create_task(reporter.aclose(timeout_s=0.3))
+    await asyncio.sleep(0)
+    assert not closing.done()
+    hold.set()
+    await closing
+
+    assert len(collector.records) == 3
+    assert reporter.dropped == 1
+
+
 async def test_a_failed_post_is_retried():
     collector = Collector()
     reporter = make_reporter(collector, 503, 503, max_batch=1)
