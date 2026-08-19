@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import time
 from collections.abc import AsyncIterable
 from collections.abc import AsyncIterator
 from collections.abc import Awaitable
@@ -24,12 +25,19 @@ from fastapi.routing import APIRoute
 from opentelemetry import context as otel_context
 from opentelemetry import propagate
 from opentelemetry import trace
+from starlette.types import ASGIApp
+from starlette.types import Message
+from starlette.types import Receive
+from starlette.types import Scope
+from starlette.types import Send
 
 from .loader import HookLoader
 from .loader import HookName
 from .model_adapter import ModelAdapter
 from .model_metadata import ModelMetadata
 from .model_metadata import TargetType
+from .prediction_stats import PredictionStatsReporter
+from .prediction_stats import start_reporter
 from .schemas import CapabilitiesResponse
 from .schemas import HealthResponse
 from .schemas import InfoResponse
@@ -66,6 +74,14 @@ def _ensure_hook_available(
 
 URL_PREFIX = os.environ.get("URL_PREFIX", "").rstrip("/")
 
+# DRUM stamps its version on every response, and DataRobot's predictions gateway reads it
+# to decide whether the model reports its own chat monitoring: a version at or below the
+# gateway's PREDICTIONS_GATEWAY_DRUM_MONITORING_UNTIL (1.17.12 by default) means "the model
+# reports it". With no header the gateway assumes any 5xx went unreported and files a record
+# of its own that carries one prediction
+DRUM_VERSION = os.environ.get("FASTRAG_DRUM_VERSION", "1.17.12")
+DRUM_VERSION_HEADER_NAME = b"x-drum-version"
+
 
 class TracedRoute(APIRoute):
     def get_route_handler(self) -> Callable[[Request], Coroutine[Any, Any, Response]]:
@@ -83,6 +99,73 @@ class TracedRoute(APIRoute):
                 return await route_handler(request)
 
         return traced_route_handler
+
+
+class PredictionStatsMiddleware:
+    """Report one record per chat completion, timed until the last response body chunk.
+
+    Matches on the route endpoint rather than URL path so ``URL_PREFIX`` / proxy
+    ``root_path`` do not miss counts.
+    """
+
+    def __init__(
+        self, app: ASGIApp, endpoints: frozenset[Callable[..., Any]] | None = None
+    ) -> None:
+        self._app = app
+        self._endpoints = REPORTED_ENDPOINTS if endpoints is None else endpoints
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self._app(scope, receive, send)
+            return
+
+        state_holder = scope.get("app")
+        reporter: PredictionStatsReporter | None = getattr(
+            getattr(state_holder, "state", None), "prediction_stats", None
+        )
+        if reporter is None:
+            await self._app(scope, receive, send)
+            return
+
+        started = time.perf_counter()
+        status = 500
+        reported = False
+
+        def report(final_status: int) -> None:
+            nonlocal reported
+            if reported or scope.get("endpoint") not in self._endpoints:
+                return
+            reported = True
+            if 300 <= final_status < 400:
+                return
+            reporter.report(
+                num_predictions=0 if final_status >= 400 else 1,
+                execution_time_ms=(time.perf_counter() - started) * 1000,
+                user_error=400 <= final_status < 500,
+                system_error=final_status >= 500,
+            )
+
+        async def send_and_report(message: Message) -> None:
+            nonlocal status
+            if message["type"] == "http.response.start":
+                status = int(message["status"])
+                message["headers"] = [
+                    *(
+                        header
+                        for header in message.get("headers", [])
+                        if header[0].lower() != DRUM_VERSION_HEADER_NAME
+                    ),
+                    (DRUM_VERSION_HEADER_NAME, DRUM_VERSION.encode()),
+                ]
+            await send(message)
+            if message["type"] == "http.response.body" and not message.get("more_body", False):
+                report(status)
+
+        try:
+            await self._app(scope, receive, send_and_report)
+        except Exception:
+            report(500)
+            raise
 
 
 @asynccontextmanager
@@ -103,10 +186,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     model_adapter = await hook_loader.load()
     app.state.model_adapter = model_adapter
 
+    prediction_stats: PredictionStatsReporter | None = await start_reporter()
+    app.state.prediction_stats = prediction_stats
+
     try:
         yield
     finally:
         model_adapter.shutdown()
+        if prediction_stats is not None:
+            await prediction_stats.aclose()
         if otel_providers is not None:
             otel_providers.trace_provider.shutdown()
             otel_providers.metric_provider.shutdown()
@@ -268,6 +356,9 @@ async def predict_unstructured(
     return response
 
 
+REPORTED_ENDPOINTS = frozenset({chat_completions})
+
+
 @router.get("/capabilities/", response_model=CapabilitiesResponse)
 async def capabilities(
     model_adapter: ModelAdapter = Depends(get_model_adapter),
@@ -384,7 +475,12 @@ async def handle_api_error(request: Request, exc: ApiError) -> JSONResponse:
 
 async def handle_unexpected_error(request: Request, exc: Exception) -> JSONResponse:
     logger.exception("Unhandled server error", exc_info=exc)
-    return JSONResponse(status_code=500, content={"detail": "Internal server error."})
+    response = JSONResponse(status_code=500, content={"detail": "Internal server error."})
+    # This response is built by ServerErrorMiddleware, outside PredictionStatsMiddleware,
+    # so it has to be stamped here for the gateway to leave the record to us.
+    if getattr(request.app.state, "prediction_stats", None) is not None:
+        response.headers[DRUM_VERSION_HEADER_NAME.decode()] = DRUM_VERSION
+    return response
 
 
 async def _await_or_api_error(awaitable: Awaitable[Any], detail: str, log_message: str) -> Any:
@@ -413,6 +509,7 @@ def main() -> FastAPI:
     app.exception_handler(ApiError)(handle_api_error)
     app.exception_handler(Exception)(handle_unexpected_error)
     app.middleware("http")(attach_trace_context)
+    app.add_middleware(PredictionStatsMiddleware)
     app.include_router(router)
     return app
 
