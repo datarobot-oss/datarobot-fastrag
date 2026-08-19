@@ -165,7 +165,19 @@ class PredictionStatsReporter:
             try:
                 self._queue.put_nowait(None)
             except asyncio.QueueFull:
-                self._task.cancel()
+                # Drain is likely blocked in _post. Cancelling would discard that
+                # in-flight batch and every queued record; drop one to enqueue the
+                # stop sentinel and let wait_for's timeout bound the rest.
+                try:
+                    discarded = self._queue.get_nowait()
+                    if discarded is not None:
+                        self.dropped += 1
+                except asyncio.QueueEmpty:
+                    pass
+                try:
+                    self._queue.put_nowait(None)
+                except asyncio.QueueFull:
+                    pass
             try:
                 await asyncio.wait_for(self._task, timeout=timeout_s)
             except (TimeoutError, asyncio.CancelledError):
