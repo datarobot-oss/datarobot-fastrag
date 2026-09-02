@@ -12,7 +12,7 @@ load mode
     and throughput. Designed to compare the old env vs the new fastrag env on prod.
 
 setup mode
-    Create a benchmark custom model, deploy it twice (once on FastDRUM/FRAG, once on DRUM),
+    Create a benchmark custom model, deploy it twice (once on FastRAG/FRAG, once on DRUM),
     and save the deployment IDs for use with `compare`. Idempotent: pass --model-id to
     reuse an existing model and skip re-creation.
 
@@ -22,7 +22,7 @@ setup mode
     python312_genai env ID via --fastrag-env-id (run list-envs to find it).
 
 compare mode
-    Run the load test on both the FastDRUM and DRUM deployments from `setup` at multiple
+    Run the load test on both the FastRAG and DRUM deployments from `setup` at multiple
     concurrency levels and print a side-by-side comparison table. Reads deployment IDs
     from ~/.config/fastrag/loadtest_deployments.json (written by setup) or accepts
     --fastrag-id / --drum-id directly.
@@ -40,13 +40,13 @@ Usage:
     # Load test a deployment
     uv run scripts/test_models.py load --deployment-id <ID> --requests 100 --concurrency 20
 
-    # Create benchmark deployments (FastDRUM + DRUM)
+    # Create benchmark deployments (FastRAG + DRUM)
     uv run scripts/test_models.py setup
 
     # Create RAG benchmark deployments (FRAG vs DRUM, same python312_genai env)
     uv run scripts/test_models.py setup --rag --fastrag-env-id <python312_genai_env_id>
 
-    # Compare FastDRUM/FRAG vs DRUM across concurrency levels
+    # Compare FastRAG/FRAG vs DRUM across concurrency levels
     uv run scripts/test_models.py compare
 
 Credentials: env vars DATAROBOT_ENDPOINT / DATAROBOT_API_TOKEN,
@@ -449,7 +449,7 @@ def test_one_model(
     print(f"created {new_v['label']} in {time.time()-t0:.1f}s")
 
     # Step 3: fastrag test
-    print(f"  [3/3] Fastdrum test...", end=" ", flush=True)
+    print(f"  [3/3] FastRAG test...", end=" ", flush=True)
     fd_status, fd_t, fd_checks = _run_and_time_test(
         dr, model_id, new_vid, dataset_id, "fastrag"
     )
@@ -490,7 +490,7 @@ def cmd_correctness(args, dr: DR, fastrag_env_id: str) -> None:
         print(f"  Dataset ID: {dataset_id}")
 
     print(f"\nTesting {len(models)} model(s)")
-    print(f"Fastdrum env: {fastrag_env_id}")
+    print(f"FastRAG env: {fastrag_env_id}")
     if dataset_id:
         print(f"Dataset:      {dataset_id}")
 
@@ -499,7 +499,7 @@ def cmd_correctness(args, dr: DR, fastrag_env_id: str) -> None:
     # Summary
     print(f"\n{'═'*80}")
     print("SUMMARY")
-    print(f"{'Model':<40} {'Type':<18} {'Baseline':>10} {'t':>7}  {'Fastdrum':>10} {'t':>7}")
+    print(f"{'Model':<40} {'Type':<18} {'Baseline':>10} {'t':>7}  {'FastRAG':>10} {'t':>7}")
     print("─" * 80)
     for r in results:
         bt = f"{r['baseline_s']:.1f}s" if r.get("baseline_s") is not None else "-"
@@ -631,7 +631,7 @@ def _deploy_version(
     print(" done")
 
     print(f"  Deploying {label}...", end=" ", flush=True)
-    dep_id = dr.create_deployment(pkg["id"], pred_env_id, f"[FastDRUM Load Test] {label}", timeout=DEPLOY_TIMEOUT)
+    dep_id = dr.create_deployment(pkg["id"], pred_env_id, f"[FastRAG Load Test] {label}", timeout=DEPLOY_TIMEOUT)
     print(f"deployment {dep_id}")
     print(f"  Waiting for {label} to go active", end="", flush=True)
     if not dr.poll_deployment_active(dep_id, timeout=DEPLOY_TIMEOUT):
@@ -650,7 +650,7 @@ def cmd_setup(args, dr: DR, fastrag_env_id: str, endpoint: str) -> None:
         print(f"Reusing model: {model['name']} ({args.model_id})")
         model_id = args.model_id
     else:
-        label = "[FastDRUM Load Test] RAG Benchmark" if rag_mode else "[FastDRUM Load Test] Benchmark Chat"
+        label = "[FastRAG Load Test] RAG Benchmark" if rag_mode else "[FastRAG Load Test] Benchmark Chat"
         print(f"Creating benchmark custom model: {label}")
         model = dr.create_model(label)
         model_id = model["id"]
@@ -689,7 +689,7 @@ def cmd_setup(args, dr: DR, fastrag_env_id: str, endpoint: str) -> None:
 
     # 3. Clean up any stale load-test deployments so they don't block the queue
     keep_ids = {args.fastrag_dep_id, args.drum_dep_id} - {None}
-    stale = [d for d in dr.list_deployments(search="[FastDRUM Load Test]")
+    stale = [d for d in dr.list_deployments(search="[FastRAG Load Test]")
              if d["id"] not in keep_ids]
     if stale:
         print(f"Cleaning up {len(stale)} stale load-test deployment(s)...")
@@ -697,13 +697,13 @@ def cmd_setup(args, dr: DR, fastrag_env_id: str, endpoint: str) -> None:
             print(f"  Deleting {d['id']} ({d.get('label', '')})")
             dr.delete_deployment(d["id"])
 
-    # 4. Deploy FastDRUM + DRUM (skip if existing dep ID supplied)
+    # 4. Deploy FastRAG + DRUM (skip if existing dep ID supplied)
     print()
     if args.fastrag_dep_id:
         fd_dep_id = args.fastrag_dep_id
-        print(f"Reusing FastDRUM deployment: {fd_dep_id}")
+        print(f"Reusing FastRAG deployment: {fd_dep_id}")
     else:
-        fd_dep_id = _deploy_version(dr, model_id, code_dir, fastrag_env_id, "FRAG" if rag_mode else "FastDRUM", pred_env_id)
+        fd_dep_id = _deploy_version(dr, model_id, code_dir, fastrag_env_id, "FRAG" if rag_mode else "FastRAG", pred_env_id)
 
     if rag_mode and not args.fastrag_dep_id:
         print(f"  Injecting DR_GENAI_RAG_FRAG_RUNNER=1...", end=" ", flush=True)
@@ -732,8 +732,8 @@ def cmd_setup(args, dr: DR, fastrag_env_id: str, endpoint: str) -> None:
 
     print(f"\n{'═'*60}")
     print("Setup complete.")
-    print(f"  FastDRUM: {endpoint}/api/v2/deployments/{fd_dep_id}/chat/completions/")
-    print(f"  DRUM:     {endpoint}/api/v2/deployments/{drum_dep_id}/chat/completions/")
+    print(f"  FastRAG: {endpoint}/api/v2/deployments/{fd_dep_id}/chat/completions/")
+    print(f"  DRUM:    {endpoint}/api/v2/deployments/{drum_dep_id}/chat/completions/")
     print(f"\nRun the comparison:")
     print(f"  uv run scripts/test_models.py compare")
     print(f"Config saved: {LOADTEST_CONFIG}")
@@ -787,8 +787,8 @@ def cmd_compare(args, endpoint: str, token: str) -> None:  # noqa: DR creates DR
     concurrency_levels = [int(c) for c in args.concurrency.split(",")]
     n = args.requests
 
-    print(f"\nFastDRUM: {fd_dep_id}")
-    print(f"DRUM:     {drum_dep_id}")
+    print(f"\nFastRAG: {fd_dep_id}")
+    print(f"DRUM:    {drum_dep_id}")
     print(f"Requests: {n} per run  |  Concurrency levels: {concurrency_levels}")
     print(f"Payload:  {json.dumps(payload)[:80]}\n")
 
@@ -796,7 +796,7 @@ def cmd_compare(args, endpoint: str, token: str) -> None:  # noqa: DR creates DR
     for c in concurrency_levels:
         print(f"  c={c:<3}", end="  ", flush=True)
 
-        print("FastDRUM", end="", flush=True)
+        print("FastRAG", end="", flush=True)
         fd_results, fd_total = asyncio.run(_async_load(endpoint, token, fd_dep_id, payload, n, c, datarobot_key=datarobot_key))
         fd = _summarize(fd_results, fd_total, n)
         print(f" {fd['rps']:5.1f} rps  p95={fd['p95_ms']:5.0f}ms  err={fd['err_pct']:4.1f}%", end="")
@@ -810,7 +810,7 @@ def cmd_compare(args, endpoint: str, token: str) -> None:  # noqa: DR creates DR
 
         if c == concurrency_levels[0]:
             if fd_err:
-                print(f"  [FastDRUM error sample] HTTP {fd_err.get('status')} — {fd_err.get('error_body') or fd_err.get('error', '')}")
+                print(f"  [FastRAG error sample] HTTP {fd_err.get('status')} — {fd_err.get('error_body') or fd_err.get('error', '')}")
             if drum_err:
                 print(f"  [DRUM error sample]     HTTP {drum_err.get('status')} — {drum_err.get('error_body') or drum_err.get('error', '')}")
 
@@ -868,22 +868,22 @@ def main() -> None:
     lp.add_argument("--datarobot-key", help="datarobot-key header for predApi auth")
 
     # setup
-    sp = sub.add_parser("setup", help="Create FastDRUM + DRUM benchmark deployments")
+    sp = sub.add_parser("setup", help="Create FastRAG + DRUM benchmark deployments")
     sp.add_argument("--model-id", help="Reuse an existing custom model (skip creation)")
     sp.add_argument("--rag", action="store_true",
                     help="RAG mode: use async/sync RAG benchmark models and the python312_genai env. "
                          "Pass --fastrag-env-id with the python312_genai env ID from DataRobot. "
                          "Both deployments use the same env; FRAG is toggled via DR_GENAI_RAG_FRAG_RUNNER=1 "
                          "injected on the FRAG deployment after creation.")
-    sp.add_argument("--code-dir", help="Directory with custom.py for FRAG/FastDRUM (default depends on --rag)")
+    sp.add_argument("--code-dir", help="Directory with custom.py for FRAG/FastRAG (default depends on --rag)")
     sp.add_argument("--drum-code-dir", help="Directory with custom.py for DRUM (default depends on --rag)")
     sp.add_argument("--drum-env-id", help="DRUM environment ID (default: same as --fastrag-env-id in RAG mode, "
                                           f"otherwise {DRUM_ENV_ID})")
-    sp.add_argument("--fastrag-env-id", help="FRAG/FastDRUM environment ID (default: personal env). "
+    sp.add_argument("--fastrag-env-id", help="FRAG/FastRAG environment ID (default: personal env). "
                                                "In RAG mode, pass the python312_genai env ID from DataRobot "
                                                "(run list-envs to find it after the env is built from the PR).")
     sp.add_argument("--pred-env-id", help="Prediction environment ID (default: first available)")
-    sp.add_argument("--fastrag-dep-id", help="Reuse an existing FRAG/FastDRUM deployment (skip creation)")
+    sp.add_argument("--fastrag-dep-id", help="Reuse an existing FRAG/FastRAG deployment (skip creation)")
     sp.add_argument("--drum-dep-id", help="Reuse an existing DRUM deployment (skip creation)")
 
     # list-envs
@@ -894,8 +894,8 @@ def main() -> None:
     sdp.add_argument("deployment_id", help="Deployment ID to inspect")
 
     # compare
-    cp2 = sub.add_parser("compare", help="Side-by-side load test: FastDRUM vs DRUM")
-    cp2.add_argument("--fastrag-id", help="FastDRUM deployment ID (overrides saved config)")
+    cp2 = sub.add_parser("compare", help="Side-by-side load test: FastRAG vs DRUM")
+    cp2.add_argument("--fastrag-id", help="FastRAG deployment ID (overrides saved config)")
     cp2.add_argument("--drum-id", help="DRUM deployment ID (overrides saved config)")
     cp2.add_argument("--requests", type=int, default=100, help="Requests per run (default: 100)")
     cp2.add_argument("--concurrency", default="10,20,50",

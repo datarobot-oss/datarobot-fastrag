@@ -1,0 +1,40 @@
+---
+# Requires every PR to add a CHANGELOG.md entry for the version it ships, or the
+# `skip-changelog` label for changes that release nothing (docs, CI, tests).
+#
+# pyproject.toml's version is what actually gets released — tag_and_push_release.sh
+# tags from it and release.yml publishes that tag — so the check is that CHANGELOG.md,
+# pyproject.toml and uv.lock all name the same, not-yet-released version.
+#
+# Lives outside ci.yml so that adding the label, or pushing just the missing entry,
+# re-runs this check alone rather than the whole lint/typecheck/test job.
+name: changelog-check
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  changelog:
+    name: "changelog entry for version bump"
+    # `skip-changelog` opts a PR out. Evaluated here rather than inside the script so
+    # that a labelled PR reports as skipped without checking out the repo.
+    if: "!contains(github.event.pull_request.labels.*.name, 'skip-changelog')"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          # The check compares this PR's CHANGELOG against the base branch's, so the
+          # base ref has to be fetchable rather than just this PR's shallow tip.
+          fetch-depth: 0
+      - name: "fetch base ref"
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: git fetch --quiet origin "+refs/heads/$BASE_REF:refs/remotes/origin/$BASE_REF"
+      - name: "check changelog"
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: python3 scripts/check_changelog.py --base-ref "origin/$BASE_REF"

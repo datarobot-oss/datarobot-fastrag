@@ -52,7 +52,7 @@ class RuntimeParameters:
 
 class RuntimeParametersLoader:
     """
-    This class is used by DRUM to load runtime parameter values from a provided YAML file.
+    This class is used by FastRAG to load runtime parameter values from a provided YAML file.
     """
 
     def __init__(self, values_filepath: str, code_dir: str):
