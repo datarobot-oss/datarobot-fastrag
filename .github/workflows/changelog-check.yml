@@ -19,7 +19,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   changelog:
-    name: "changelog entry for the released version"
+    name: "changelog entry for version bump"
     # `skip-changelog` opts a PR out. Evaluated here rather than inside the script so
     # that a labelled PR reports as skipped without checking out the repo.
     if: "!contains(github.event.pull_request.labels.*.name, 'skip-changelog')"
