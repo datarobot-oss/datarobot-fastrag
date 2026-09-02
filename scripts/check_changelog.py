@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """Require every PR to ship a CHANGELOG entry for the version it releases.
 
+The entry has to name the version in pyproject.toml, and uv.lock has to agree,
+so there won't be drift for the required places for a new version release.
+
 Run locally with `make changelog-check`; CI runs it from
 .github/workflows/changelog-check.yml.
 """
