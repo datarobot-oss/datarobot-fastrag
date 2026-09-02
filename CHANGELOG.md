@@ -9,6 +9,10 @@ All notable changes to `datarobot-fastrag` are recorded here. The format follows
 
 <!-- version list -->
 
+## v0.2.3 (2026-09-02)
+
+- Renamed leftover references of project's former name (FastDRUM) to FastRAG
+
 ## v0.2.2 (2026-08-19)
 
 - Chat-completion prediction stats reporting for deployments
