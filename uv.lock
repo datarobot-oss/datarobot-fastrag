@@ -381,7 +381,7 @@ wheels = [
 
 [[package]]
 name = "datarobot-fastrag"
-version = "0.2.2"
+version = "0.2.3"
 source = { virtual = "." }
 dependencies = [
     { name = "datarobot-moderations" },
