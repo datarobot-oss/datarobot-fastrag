@@ -13,6 +13,8 @@ the review may happen while you are asleep / otherwise not able to respond quick
 ## Checklist
 - [ ] Tests added or updated for the change
 - [ ] `make ci` passes locally
+- [ ] Version bumped in `pyproject.toml`
+- [ ] `CHANGELOG.md` updated
 
 <!-- Recommended Additional Sections:
 ## SCREENSHOTS

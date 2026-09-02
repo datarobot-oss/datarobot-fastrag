@@ -79,6 +79,10 @@ mypy:
 lint:
 	@uv run ruff check .
 
+.PHONY: changelog-check
+changelog-check: ## Verify CHANGELOG.md documents the version in pyproject.toml
+	@python3 scripts/check_changelog.py
+
 ci: lint mypy fmt test
 
 .PHONY: verify
