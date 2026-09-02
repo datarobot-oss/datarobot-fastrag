@@ -38,6 +38,8 @@ def main() -> int:
         print("Add one, or correct the version in pyproject.toml.", file=sys.stderr)
         return 1
 
+    print(f"## v{entry.version} ({entry.date})")
+    print()
     print(entry.body)
     return 0
 
