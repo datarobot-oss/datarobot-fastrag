@@ -1,14 +1,84 @@
 ---
+# Releasing is driven by the version in pyproject.toml. Merging a version bump to main
+# tags that merge commit `v<version>`, opens a GitHub release whose notes are the
+# version's CHANGELOG.md section, and publishes the build to PyPI. A merge that leaves
+# the version alone (docs, CI, a `skip-changelog` PR) finds its tag already present and
+# stops there, so every merge can run this safely.
+#
+# Tagging and publishing share one workflow deliberately:
+#   - A release created with GITHUB_TOKEN does not start further workflow runs, so a
+#     separate workflow listening on `release: published` would never fire for the
+#     automated releases. Doing both here avoids needing a PAT or GitHub App token.
+#   - Publishing has to stay in *this file*: release.yml is the workflow filename
+#     registered with PyPI as a trusted publisher, together with the `pypi` environment
+#     below. Renaming or moving the publish job means reconfiguring PyPI.
 name: release
 on:
+  push:
+    branches: ["main"]
   release:
     types: [published]
   workflow_dispatch:
 permissions:
   contents: read
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
 jobs:
+  tag:
+    name: "tag and create release"
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      released: ${{ steps.release.outputs.released }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: "read version"
+        id: version
+        run: |
+          version=$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "pyproject.toml ships $version"
+
+      - name: "create release"
+        id: release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          tag="v$VERSION"
+
+          # The tag, not the release, is the record of what shipped: v0.2.1 is a draft
+          # release but a real tag, and must not be re-cut.
+          if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null 2>&1; then
+            echo "released=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::$tag is already tagged — this merge releases nothing."
+            exit 0
+          fi
+
+          # Fails when CHANGELOG.md has no section for this version, which means the
+          # merge bumped pyproject.toml without documenting it.
+          python3 scripts/release_notes.py > "$RUNNER_TEMP/notes.md"
+
+          # Creates the tag on this merge commit as a side effect of the release.
+          gh release create "$tag" \
+            --target "$GITHUB_SHA" \
+            --title "$tag" \
+            --notes-file "$RUNNER_TEMP/notes.md"
+          echo "released=true" >> "$GITHUB_OUTPUT"
+
   pypi-publish:
     name: "build and publish to PyPI"
+    needs: [tag]
+    # A skipped `needs` job would skip this one too, so the release and dispatch
+    # triggers — where `tag` never runs — need saying explicitly.
+    if: >-
+      ${{ !cancelled()
+          && needs.tag.result != 'failure'
+          && (github.event_name != 'push' || needs.tag.outputs.released == 'true') }}
     runs-on: ubuntu-latest
     # Must match the environment name registered on PyPI (or remove both).
     environment: pypi
@@ -17,6 +87,7 @@ jobs:
       id-token: write
       contents: read
     steps:
+      # Checks out the merge commit just tagged (push) or the release's tag (release).
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9  # v9.0.0
         with:
