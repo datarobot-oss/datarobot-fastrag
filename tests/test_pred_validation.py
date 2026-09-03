@@ -230,6 +230,30 @@ def test_vector_database_splits_citation_columns(vector_database_metadata):
     assert resp.extraModelOutput.data == [["docs/autopilot.pdf", 3]]
 
 
+def test_vector_database_target_column_from_quoted_env(monkeypatch):
+    """DataRobot exports TARGET_NAME quoted, so the column lookup has to strip it.
+
+    Without the strip the target name never matches and the split silently falls back
+    to column order, picking the citation column as the predictions.
+    """
+    monkeypatch.setenv("TARGET_NAME", '"relevant"')
+    metadata = ModelMetadata(target_type=TargetType.VECTOR_DATABASE)
+    metadata.merge_env_overrides()
+
+    df = pd.DataFrame(
+        {
+            "CITATION_SOURCE_0": ["docs/autopilot.pdf"],
+            "relevant": [["chunk a"]],
+        }
+    )
+
+    resp = format_prediction_response(df, metadata)
+
+    assert resp.predictions == [["chunk a"]]
+    assert resp.extraModelOutput is not None
+    assert resp.extraModelOutput.columns == ["CITATION_SOURCE_0"]
+
+
 def test_vector_database_target_column_is_not_first(vector_database_metadata):
     """The target name, not column order, decides which column holds the documents."""
     df = pd.DataFrame(
