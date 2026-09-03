@@ -110,7 +110,6 @@ class TextGenerationPredictionResponse(BasePredictionResponse):
 
 
 class VectorDatabasePredictionResponse(BasePredictionResponse):
-    # DataRobot requires one list of retrieved documents per scored row.
     predictions: list[list[Any]]
 
 

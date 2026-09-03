@@ -240,12 +240,9 @@ def format_prediction_response(
             predictions, target_column=target_col
         )
     elif target_type == TargetType.VECTOR_DATABASE:
-        # Vector database models return the retrieved documents alongside citation
-        # metadata, so the target column identifies the predictions and everything
-        # else becomes extra model output.
+        target_col = _resolve_target_column(predictions, inference_model.target_name)
         predictions, extra_model_output = split_predictions_and_extra_output(
-            predictions,
-            target_column=_resolve_target_column(predictions, inference_model.target_name),
+            predictions, target_column=target_col
         )
     else:
         extra_model_output = None
