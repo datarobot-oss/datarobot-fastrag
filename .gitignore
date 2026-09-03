@@ -188,3 +188,6 @@ cscope.out
 Implementation Plan.md
 examples/fastrag_py323_genai_env/*.whl
 tests/example_env/*.whl
+
+# local memory profiling output
+.mem-profile/

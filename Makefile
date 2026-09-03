@@ -89,6 +89,10 @@ ci: lint mypy fmt test
 verify: ## Build a local Docker image and run endpoint + concurrency checks
 	@bash scripts/verify_docker.sh
 
+.PHONY: mem-profile
+mem-profile: ## Local memory profile of the fastrag container (pass ARGS="--memory 2g ...")
+	@uv run scripts/mem_profile.py $(ARGS)
+
 .PHONY: upload
 upload: ## Build wheel and upload new execution environment version to DataRobot SaaS
 	@uv run scripts/upload_dr_env.py
