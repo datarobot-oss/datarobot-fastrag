@@ -24,6 +24,7 @@ from .schemas import PredictionResponse
 from .schemas import RegressionPredictionItem
 from .schemas import RegressionPredictionResponse
 from .schemas import TextGenerationPredictionResponse
+from .schemas import VectorDatabasePredictionResponse
 
 
 class ApiError(Exception):
@@ -238,6 +239,14 @@ def format_prediction_response(
         predictions, extra_model_output = split_predictions_and_extra_output(
             predictions, target_column=target_col
         )
+    elif target_type == TargetType.VECTOR_DATABASE:
+        # Vector database models return the retrieved documents alongside citation
+        # metadata, so the target column identifies the predictions and everything
+        # else becomes extra model output.
+        predictions, extra_model_output = split_predictions_and_extra_output(
+            predictions,
+            target_column=_resolve_target_column(predictions, inference_model.target_name),
+        )
     else:
         extra_model_output = None
 
@@ -252,6 +261,8 @@ def format_prediction_response(
             return _build_binary_response(predictions, inference_model, extra)
         case TargetType.MULTICLASS:
             return _build_multiclass_response(predictions, inference_model, extra)
+        case TargetType.VECTOR_DATABASE:
+            return _build_vector_database_response(predictions, extra)
         case _:
             return _build_generic_response(predictions, extra)
 
@@ -281,6 +292,38 @@ def _build_text_generation_response(
 ) -> TextGenerationPredictionResponse:
     items = _extract_scalar_predictions(df, str)
     return TextGenerationPredictionResponse(predictions=items, extraModelOutput=extra)
+
+
+def _resolve_target_column(df: pd.DataFrame, target_name: str | None) -> str | None:
+    """Pick the column holding the predictions, falling back to positional split."""
+    if target_name and target_name in df.columns:
+        return target_name
+    if "prediction" in df.columns:
+        return "prediction"
+    return None
+
+
+def _coerce_retrieved_documents(value: Any, idx: int) -> list[Any]:
+    if isinstance(value, list):
+        return value
+    if isinstance(value, tuple):
+        return list(value)
+    # numpy arrays and pandas Series are common return types from user code
+    converted = value.tolist() if hasattr(value, "tolist") else None
+    if isinstance(converted, list):
+        return converted
+    raise ValueError(
+        f"Vector database prediction at index {idx} must be a list of retrieved "
+        f"documents, got {type(value).__name__}."
+    )
+
+
+def _build_vector_database_response(
+    df: pd.DataFrame, extra: ExtraModelOutput | None
+) -> VectorDatabasePredictionResponse:
+    values = _extract_scalar_predictions(df, lambda value: value)
+    items = [_coerce_retrieved_documents(value, idx) for idx, value in enumerate(values)]
+    return VectorDatabasePredictionResponse(predictions=items, extraModelOutput=extra)
 
 
 def _build_classification_values(

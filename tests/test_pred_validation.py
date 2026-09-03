@@ -1,3 +1,4 @@
+import numpy as np
 import pandas as pd
 import pytest
 from pydantic import ValidationError
@@ -8,6 +9,7 @@ from fastrag.schemas import BinaryPredictionResponse
 from fastrag.schemas import MulticlassPredictionResponse
 from fastrag.schemas import RegressionPredictionResponse
 from fastrag.schemas import TextGenerationPredictionResponse
+from fastrag.schemas import VectorDatabasePredictionResponse
 from fastrag.validation import format_prediction_response
 
 
@@ -39,6 +41,14 @@ def multiclass_metadata():
 @pytest.fixture
 def text_generation_metadata():
     return ModelMetadata(target_type=TargetType.TEXT_GENERATION)
+
+
+@pytest.fixture
+def vector_database_metadata():
+    return ModelMetadata(
+        target_type=TargetType.VECTOR_DATABASE,
+        inference_model={"targetName": "relevant"},
+    )
 
 
 def test_regression_example(regression_metadata):
@@ -193,3 +203,68 @@ def test_text_generation_with_extra_columns_auto_split(text_generation_metadata)
     assert resp.predictions == ["hello", "world"]
     assert resp.extraModelOutput is not None
     assert set(resp.extraModelOutput.columns) == {"token_count", "metadata"}
+
+
+def test_vector_database_selects_typed_response(vector_database_metadata):
+    df = pd.DataFrame({"relevant": [["chunk a", "chunk b"], ["chunk c"]]})
+    resp = format_prediction_response(df, vector_database_metadata)
+    assert isinstance(resp, VectorDatabasePredictionResponse)
+    assert resp.predictions == [["chunk a", "chunk b"], ["chunk c"]]
+    assert resp.extraModelOutput is None
+
+
+def test_vector_database_splits_citation_columns(vector_database_metadata):
+    df = pd.DataFrame(
+        {
+            "relevant": [["chunk a", "chunk b"]],
+            "CITATION_SOURCE_0": ["docs/autopilot.pdf"],
+            "CITATION_PAGE_0": [3],
+        }
+    )
+
+    resp = format_prediction_response(df, vector_database_metadata)
+
+    assert resp.predictions == [["chunk a", "chunk b"]]
+    assert resp.extraModelOutput is not None
+    assert resp.extraModelOutput.columns == ["CITATION_SOURCE_0", "CITATION_PAGE_0"]
+    assert resp.extraModelOutput.data == [["docs/autopilot.pdf", 3]]
+
+
+def test_vector_database_target_column_is_not_first(vector_database_metadata):
+    """The target name, not column order, decides which column holds the documents."""
+    df = pd.DataFrame(
+        {
+            "CITATION_SOURCE_0": ["docs/autopilot.pdf"],
+            "relevant": [["chunk a"]],
+        }
+    )
+
+    resp = format_prediction_response(df, vector_database_metadata)
+
+    assert resp.predictions == [["chunk a"]]
+    assert resp.extraModelOutput is not None
+    assert resp.extraModelOutput.columns == ["CITATION_SOURCE_0"]
+
+
+def test_vector_database_falls_back_to_first_column():
+    """Without a matching target name the first column holds the documents, as in DRUM."""
+    metadata = ModelMetadata(target_type=TargetType.VECTOR_DATABASE)
+    df = pd.DataFrame({"documents": [["chunk a"]], "score": [0.9]})
+
+    resp = format_prediction_response(df, metadata)
+
+    assert resp.predictions == [["chunk a"]]
+    assert resp.extraModelOutput is not None
+    assert resp.extraModelOutput.columns == ["score"]
+
+
+def test_vector_database_accepts_non_list_sequences(vector_database_metadata):
+    df = pd.DataFrame({"relevant": [("chunk a", "chunk b"), np.array(["chunk c"])]})
+    resp = format_prediction_response(df, vector_database_metadata)
+    assert resp.predictions == [["chunk a", "chunk b"], ["chunk c"]]
+
+
+def test_vector_database_scalar_prediction_raises(vector_database_metadata):
+    df = pd.DataFrame({"relevant": ["chunk a"]})
+    with pytest.raises(ValueError, match="must be a list of retrieved documents, got str"):
+        format_prediction_response(df, vector_database_metadata)

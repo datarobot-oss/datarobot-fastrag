@@ -109,6 +109,11 @@ class TextGenerationPredictionResponse(BasePredictionResponse):
     predictions: list[str]
 
 
+class VectorDatabasePredictionResponse(BasePredictionResponse):
+    # DataRobot requires one list of retrieved documents per scored row.
+    predictions: list[list[Any]]
+
+
 class GenericPredictionResponse(BasePredictionResponse):
     predictions: LegacyPredictions
 
@@ -118,6 +123,7 @@ PredictionResponse: TypeAlias = (
     | RegressionPredictionResponse
     | MulticlassPredictionResponse
     | TextGenerationPredictionResponse
+    | VectorDatabasePredictionResponse
     | GenericPredictionResponse
 )
 
