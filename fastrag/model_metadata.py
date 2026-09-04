@@ -74,10 +74,8 @@ class ModelMetadata(BaseModel):
         if target_type := os.environ.get("TARGET_TYPE"):
             self.target_type = TargetType(target_type.lower())
         if target_name := os.environ.get("TARGET_NAME"):
-            # Strip doublequotes from target name if present
-            if len(target_name) >= 2 and target_name[0] == '"' and target_name[-1] == '"':
-                target_name = target_name[1:-1]
-            self.inference_model.target_name = target_name
+            # DataRobot exports TARGET_NAME wrapped in double quotes.
+            self.inference_model.target_name = target_name.strip('"')
         if pos_label := os.environ.get("POSITIVE_CLASS_LABEL"):
             self.inference_model.positive_class_label = pos_label
         if neg_label := os.environ.get("NEGATIVE_CLASS_LABEL"):
