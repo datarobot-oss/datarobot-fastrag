@@ -109,6 +109,10 @@ class TextGenerationPredictionResponse(BasePredictionResponse):
     predictions: list[str]
 
 
+class VectorDatabasePredictionResponse(BasePredictionResponse):
+    predictions: list[list[Any]]
+
+
 class GenericPredictionResponse(BasePredictionResponse):
     predictions: LegacyPredictions
 
@@ -118,6 +122,7 @@ PredictionResponse: TypeAlias = (
     | RegressionPredictionResponse
     | MulticlassPredictionResponse
     | TextGenerationPredictionResponse
+    | VectorDatabasePredictionResponse
     | GenericPredictionResponse
 )
 

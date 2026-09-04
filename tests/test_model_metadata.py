@@ -103,3 +103,37 @@ def test_model_metadata_env_overrides(tmp_path, monkeypatch):
     assert metadata.inference_model.positive_class_label == "Yes"
     assert metadata.inference_model.negative_class_label == "No"
     assert metadata.inference_model.class_labels == ["A", "B", "C"]
+
+
+def test_target_name_env_override_strips_quotes(monkeypatch):
+    """DataRobot exports TARGET_NAME wrapped in double quotes."""
+    monkeypatch.setenv("TARGET_NAME", '"relevant"')
+
+    metadata = ModelMetadata(target_type=TargetType.VECTOR_DATABASE)
+    metadata.merge_env_overrides()
+
+    assert metadata.inference_model.target_name == "relevant"
+
+
+def test_target_name_env_override_without_quotes(monkeypatch):
+    monkeypatch.setenv("TARGET_NAME", "relevant")
+
+    metadata = ModelMetadata(target_type=TargetType.VECTOR_DATABASE)
+    metadata.merge_env_overrides()
+
+    assert metadata.inference_model.target_name == "relevant"
+
+
+def test_target_name_env_override_strips_quotes_greedily(monkeypatch):
+    """`.strip('"')` removes every surrounding quote, not just one balanced pair.
+
+    This deliberately diverges from DRUM, which strips a single pair only when the raw
+    value does not match a column. A target name that itself starts or ends with a quote
+    is not supported.
+    """
+    monkeypatch.setenv("TARGET_NAME", '""relevant""')
+
+    metadata = ModelMetadata(target_type=TargetType.VECTOR_DATABASE)
+    metadata.merge_env_overrides()
+
+    assert metadata.inference_model.target_name == "relevant"

@@ -1,10 +1,14 @@
 [project]
 name = "datarobot-fastrag"
-version = "0.2.3"
+version = "0.2.4"
 description = "Async FastAPI runner for DataRobot custom LLM and RAG models"
 readme = "README.md"
 requires-python = ">=3.12"
-authors = [{ name = "Nickolai Novik", email = "nickolai@datarobot.com" }]
+authors = [
+    { name = "Nickolai Novik", email = "nickolai@datarobot.com" },
+    { name = "Mikael Baath", email = "mikael.baath@datarobot.com" },
+    { name = "Alex Shoop", email = "alexander.shoop@datarobot.com" },
+]
 
 dependencies = [
     "fastapi>=0.128.7",
