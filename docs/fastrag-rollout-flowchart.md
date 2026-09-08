@@ -1,4 +1,4 @@
-# FastDRUM Rollout — Deployment Flowchart
+# FastRAG Rollout — Deployment Flowchart
 
 ```mermaid
 flowchart TD
@@ -8,15 +8,15 @@ flowchart TD
 
     CreateVersion --> PhaseCheck{Which milestone\nphase are we in?}
 
-    PhaseCheck -->|"M1–M3 · POC\nSeparate images"| POCChoice["Customer explicitly selects\nan execution environment:\n  FastDRUM staging image  —or—\n  Legacy DRUM-only image"]
+    PhaseCheck -->|"M1–M3 · POC\nSeparate images"| POCChoice["Customer explicitly selects\nan execution environment:\n  FastRAG staging image  —or—\n  Legacy DRUM-only image"]
 
-    PhaseCheck -->|"M4–M6 · Merged image\nflag-controlled"| FlagCheck{"Flag CUSTOM_MODELS_FAST_DRUM\nenabled for this org?"}
+    PhaseCheck -->|"M4–M6 · Merged image\nflag-controlled"| FlagCheck{"Flag GENAI_RAG_FRAG_RUNNER\nenabled for this org?"}
 
-    PhaseCheck -->|"M7+ · DRUM deprecated"| FDOnly["Only FastDRUM image available\nCustomer has no DRUM option"]
+    PhaseCheck -->|"M7+ · DRUM deprecated"| FDOnly["Only FastRAG image available\nCustomer has no DRUM option"]
 
     FlagCheck -->|"Disabled · default off\nM4–M5 initial state"| DefaultDRUM["Default: DRUM\nCustomer can override to\nmerged image manually"]
 
-    FlagCheck -->|"Enabled per-org\nM5 PRIVATE_PREVIEW opt-in"| DefaultFD["Default: Merged FastDRUM image\nCustomer can override back\nto DRUM if needed"]
+    FlagCheck -->|"Enabled per-org\nM5 PRIVATE_PREVIEW opt-in"| DefaultFD["Default: Merged FastRAG image\nCustomer can override back\nto DRUM if needed"]
 
     FlagCheck -->|"Enabled by default\nM6 GA_PREMIUM"| DefaultFD
 
@@ -37,16 +37,16 @@ flowchart TD
 
     ImageType -->|"DRUM-only image\n(M1–M3 or pre-flag)"| DrumServer["drum server\nFlask · WSGI · sync"]
 
-    ImageType -->|"Merged image\n(M4+)"| EnvVarCheck{"DR_USE_FASTDRUM\nenv var injected\nby platform?"}
+    ImageType -->|"Merged image\n(M4+)"| EnvVarCheck{"DR_GENAI_RAG_FRAG_RUNNER\nenv var injected\nby platform?"}
 
     EnvVarCheck -->|"Yes — flag ON\nfor this org"| FDServer["fastrag server\nFastAPI · ASGI · async"]
 
     EnvVarCheck -->|"No — flag OFF\nfor this org"| DrumServer
 
     DrumServer --> ServeDRUM([Serving predictions\nvia DRUM])
-    FDServer --> ServeFD([Serving predictions\nvia FastDRUM ✅])
+    FDServer --> ServeFD([Serving predictions\nvia FastRAG ✅])
 
-    WantSwitch(["Customer on existing DRUM deployment\nwants to switch to FastDRUM"]) --> CanToggle{"Can I toggle the flag\non the existing deployment?"}
+    WantSwitch(["Customer on existing DRUM deployment\nwants to switch to FastRAG"]) --> CanToggle{"Can I toggle the flag\non the existing deployment?"}
 
     CanToggle -->|"No — image is\npermanently frozen"| MustCreate["Customer must create a\nNEW custom model version\npointing at the merged image"]
 
@@ -66,13 +66,13 @@ flowchart TD
 | Colour | Meaning |
 |--------|---------|
 | 🔵 Blue | Platform-side immutable operation (freeze) |
-| 🟢 Green | FastDRUM serving |
+| 🟢 Green | FastRAG serving |
 | 🟡 Yellow | Legacy DRUM serving |
 | 🔴 Red | Dead end — this path doesn't work |
 
 ## Key insight
 
-The feature flag `CUSTOM_MODELS_FAST_DRUM` controls **which environment is the default when creating a new model version**.
+The feature flag `GENAI_RAG_FRAG_RUNNER` controls **which environment is the default when creating a new model version**.
 It does **not** affect existing deployments. Because the image digest is frozen at model-version creation time,
 a model built against the old DRUM image will always run DRUM — forever — regardless of any flag change.
 

@@ -40,6 +40,12 @@ _SCORE_CASES = [
         "env": {"TARGET_TYPE": "textgeneration"},
         "csv": b"input\nhello",
     },
+    {
+        "target": "vectordatabase",
+        # DataRobot exports TARGET_NAME wrapped in double quotes.
+        "env": {"TARGET_TYPE": "vectordatabase", "TARGET_NAME": '"relevant"'},
+        "csv": b"promptText\nwhat is autopilot",
+    },
 ]
 
 MODEL_CASES = []
@@ -83,6 +89,36 @@ def test_predict_per_model(model_client):
     json_resp = response.json()
     assert "predictions" in json_resp
     assert len(json_resp["predictions"]) > 0
+
+
+VECTOR_DATABASE_CASES = [
+    {"id": "vectordatabase_sync", "dir": "python3_dummy_vectordatabase"},
+    {"id": "vectordatabase_async", "dir": "python3_dummy_vectordatabase_async"},
+]
+
+
+@pytest.fixture(params=VECTOR_DATABASE_CASES, ids=lambda c: c["id"])
+def vector_database_client(request, monkeypatch):
+    model_dir = os.path.join(MODELS_DIR, request.param["dir"])
+    monkeypatch.setenv("CODE_DIR", model_dir)
+    monkeypatch.setenv("TARGET_TYPE", "vectordatabase")
+    monkeypatch.setenv("TARGET_NAME", '"relevant"')
+    with TestClient(app) as c:
+        yield c
+
+
+def test_vector_database_predictions_are_lists(vector_database_client):
+    """DataRobot rejects the response unless every prediction is itself a list."""
+    files = {"X": ("test.csv", b"promptText\nwhat is autopilot\nwhat is drum", "text/csv")}
+    response = vector_database_client.post("/predict/", files=files)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["predictions"] == [
+        ["chunk about what is autopilot", "supporting chunk"],
+        ["chunk about what is drum", "supporting chunk"],
+    ]
+    assert data["extraModelOutput"]["columns"] == ["CITATION_SOURCE_0", "CITATION_PAGE_0"]
 
 
 CHAT_CASES = [

@@ -11,7 +11,7 @@ from .settings import load_settings
 
 def parse_args() -> argparse.Namespace:
     defaults = load_settings()
-    parser = argparse.ArgumentParser(description="FastAPI Custom Model Runner (Fast DRUM)")
+    parser = argparse.ArgumentParser(description="FastAPI Custom Model Runner (FastRAG)")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     server_parser = subparsers.add_parser("server", help="Start the prediction server")
@@ -55,7 +55,7 @@ def run_server(args: argparse.Namespace) -> None:
     # to uvicorn workers.
     settings.setup_env()
 
-    logger.info(f"Starting Fast DRUM with code_dir: {settings.code_dir}")
+    logger.info(f"Starting FastRAG with code_dir: {settings.code_dir}")
 
     if settings.runtime_params_file:
         logger.info(f"Loading runtime parameters from {settings.runtime_params_file}")

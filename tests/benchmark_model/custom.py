@@ -7,7 +7,7 @@ async def chat(completion_create_params, model=None, **kwargs):
     Async benchmark hook. Simulates 100ms I/O-bound LLM latency.
 
     Under DRUM (sync, thread-per-request) each concurrent request occupies a thread
-    for the full 100ms sleep. Under FastDRUM the event loop serves other requests
+    for the full 100ms sleep. Under FastRAG the event loop serves other requests
     while this request awaits, so concurrency throughput should scale linearly.
     """
     await asyncio.sleep(0.1)

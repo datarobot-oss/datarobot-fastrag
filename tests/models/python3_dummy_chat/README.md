@@ -5,35 +5,35 @@ This is a simple text generation model that supports OpenAI API chat() and model
 ## Instructions
 Create a new custom model with this `custom.py` and use any GenAI Python Drop-In Environment with it.
 
-`drum score --code-dir model_templates/python3_chat --target-type textgeneration --input tests/testdata/simple_text.csv`
+### To run locally with `fastrag`
+Paths are relative to the repository root. `fastrag server` has no target-type flag, so it
+comes from an environment variable (or a `model-metadata.yaml` in the code dir):
 
-### To run 'drum' locally in server mode and submit request
-Paths are relative to `./datarobot-user-models`:
-
-`export TARGET_NAME=completion  # not used by chat, but required for starting the model`
-
-`drum server --code-dir model_templates/python3_dummy_chat/ --target-type textgeneration --address localhost:6789`
+```bash
+TARGET_TYPE=textgeneration fastrag server \
+  --code-dir tests/models/python3_dummy_chat \
+  --address localhost:6789
+```
 
 ### Using `curl`:
 
 #### List models:
-`curl localhost:6789/models`
+```bash
+curl localhost:6789/models
+```
+
+#### Chat:
+```bash
+curl -X POST http://localhost:6789/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model": "gpt-4o-mini", "messages": [{"role": "user", "content": "Greetings"}]}'
+```
 
 ### Using OpenAI Python client:
 
-#### List models:
-
-```python
-from openai import OpenAI
-
-url = "http://localhost:6789"
-api_token = "not-needed"
-client = OpenAI(base_url=url, api_key=api_token, _strict_response_validation=False)
-
-models = client.models.list()
-for model in models:
-    print(model.to_dict())
-```
+Note: `client.models.list()` does not work against `fastrag`. The `/models` route returns the
+bare list from the `get_supported_llm_models` hook, not the `{"object": "list", "data": [...]}`
+envelope the OpenAI client expects, so use the `curl` above to list models.
 
 #### Simple chat:
 
@@ -51,4 +51,3 @@ response = client.chat.completions.create(
 )
 print(response)
 ```
-

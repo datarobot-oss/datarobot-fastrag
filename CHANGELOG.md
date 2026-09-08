@@ -9,6 +9,16 @@ All notable changes to `datarobot-fastrag` are recorded here. The format follows
 
 <!-- version list -->
 
+## v0.2.4 (2026-09-03)
+
+- Fixed `vectordatabase` target type predictions being returned as objects instead of lists
+- Stripped double quotes from `TARGET_NAME` environment variable if present
+
+## v0.2.3 (2026-09-02)
+
+- Renamed leftover references of project's former name (FastDRUM) to FastRAG
+- Added `changelog-check` CI
+
 ## v0.2.2 (2026-08-19)
 
 - Chat-completion prediction stats reporting for deployments
