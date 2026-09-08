@@ -83,6 +83,10 @@ lint:
 changelog-check: ## Verify CHANGELOG.md documents the version in pyproject.toml
 	@python3 scripts/check_changelog.py
 
+.PHONY: bump
+bump: ## Bump version in pyproject/uv.lock/CHANGELOG (PART=patch|minor|major, NOTES="a;b")
+	@uv run scripts/bump_version.py $(or $(PART),patch) --notes "$(NOTES)"
+
 ci: lint mypy fmt test
 
 .PHONY: verify
@@ -90,7 +94,7 @@ verify: ## Build a local Docker image and run endpoint + concurrency checks
 	@bash scripts/verify_docker.sh
 
 .PHONY: mem-profile
-mem-profile: ## Local memory profile of the fastrag container (pass ARGS="--memory 2g ...")
+mem-profile: ## Local memory profile of fastrag container (pass ARGS="--memory 2g ...")
 	@uv run scripts/mem_profile.py $(ARGS)
 
 .PHONY: upload

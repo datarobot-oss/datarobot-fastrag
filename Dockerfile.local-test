@@ -1,11 +1,7 @@
 FROM datarobotdev/buzok-genai-custom-model-local-dropin-env:latest
 USER root
 COPY dist/datarobot_fastrag-*.whl /tmp/
-# --no-deps on purpose: the base env already pins fastapi/uvicorn/openai/pandas/etc,
-# and a --force-reinstall of the whole tree rebuilds sdist-only transitive deps
-# (rouge-score, via datarobot-moderations) which fails. Keeping the base env's pins
-# also means this image differs from the stock DRUM env only by fastrag itself,
-# which is what makes a fastrag-vs-DRUM comparison on one image apples-to-apples.
+# --no-deps to retain base env pins and avoid sdist rebuilds; only adds fastrag for fair comparison
 RUN pip install --no-cache-dir --force-reinstall --no-deps /tmp/datarobot_fastrag-*.whl \
  && pip install --no-cache-dir \
       python-multipart \
