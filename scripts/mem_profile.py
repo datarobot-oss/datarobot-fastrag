@@ -11,6 +11,12 @@ memory while driving chat traffic at it, and reports:
   leak slope      memory drift over a long soak                -> per-request leaks
   retained        memory left over after traffic stops         -> what never comes back
 
+It also labels two things the numbers cannot show on their own: which adapter
+fastrag chose (async hooks await on the event loop; sync hooks run in a
+THREAD_POOL_WORKERS-sized pool, which caps concurrency regardless of load), and
+whether the container ran emulated - on Apple Silicon rps and latency do not
+transfer to production, though the memory figures do.
+
 Memory is read from the container's own cgroup (v2 preferred, v1 fallback), which
 is the number the OOM killer acts on. Two series are recorded:
 
@@ -34,8 +40,10 @@ Prerequisites: Docker running, and the base image pulled:
 """
 
 import argparse
+import ast
 import asyncio
 import json
+import platform
 import statistics
 import subprocess
 import sys
@@ -52,6 +60,11 @@ DEFAULT_IMAGE = "fastrag-mem-test"
 DEFAULT_PLATFORM = "linux/amd64"
 CONTAINER = "fastrag-memprofile"
 MB = 1024.0 * 1024.0
+
+# Hook names fastrag looks for in custom.py (HookName in fastrag/loader.py).
+HOOK_NAMES = frozenset(
+    {"init", "load_model", "score", "score_unstructured", "chat", "get_supported_llm_models"}
+)
 
 GREEN = "\033[0;32m"
 RED = "\033[0;31m"
@@ -70,6 +83,10 @@ def ok(msg):
 
 def bad(msg):
     print(f"  {RED}x{NC} {msg}", flush=True)
+
+
+def warn(msg):
+    print(f"  {YELLOW}!{NC} {msg}", flush=True)
 
 
 # ---------------------------------------------------------------------------
@@ -203,6 +220,53 @@ def fmt_mb(value, width, places=1, sign=""):
     return f"{value:>{sign}{width}.{places}f}"
 
 
+def detect_adapter(model_dir):
+    """Which adapter fastrag will pick for this model: "async", "sync" or None.
+
+    fastrag/loader.py picks AsyncModelAdapter when any hook is a coroutine function
+    and SyncModelAdapter otherwise, and the two have completely different
+    concurrency behaviour - so a report that does not say which one ran invites
+    being read as a claim about the other. Parsed rather than imported: importing
+    custom.py would need the model's own dependencies installed here.
+
+    Returns None when the hooks are not plain module-level defs (a callable class,
+    say), because then only fastrag itself can decide.
+    """
+    try:
+        tree = ast.parse((model_dir / "custom.py").read_text())
+    except (OSError, SyntaxError):
+        return None
+    kinds = {
+        type(node)
+        for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in HOOK_NAMES
+    }
+    if not kinds:
+        return None
+    # loader.py takes the async adapter if *any* hook is async.
+    return "async" if ast.AsyncFunctionDef in kinds else "sync"
+
+
+def adapter_label(adapter, thread_pool_workers, runner="fastrag"):
+    """One line naming the adapter and what bounds its concurrency.
+
+    AsyncModelAdapter/SyncModelAdapter are fastrag's own classes, so for the DRUM
+    side only the model's hook style is stated.
+    """
+    if runner != "fastrag":
+        return {"async": "async hooks", "sync": "sync hooks"}.get(adapter, "unknown hook style")
+    if adapter == "async":
+        return "AsyncModelAdapter - hooks await on the event loop, no per-request thread"
+    if adapter == "sync":
+        pool = (
+            f"{thread_pool_workers}-thread pool (THREAD_POOL_WORKERS)"
+            if thread_pool_workers
+            else "2-thread pool (THREAD_POOL_WORKERS unset, fastrag's default)"
+        )
+        return f"SyncModelAdapter - hooks run in a {pool}"
+    return "unknown - hooks are not plain module-level defs; only fastrag can say"
+
+
 # ---------------------------------------------------------------------------
 # Docker plumbing
 # ---------------------------------------------------------------------------
@@ -324,6 +388,10 @@ def start_container(args, model_dir):
     }
     if args.malloc_arena_max:
         env["MALLOC_ARENA_MAX"] = str(args.malloc_arena_max)
+    # Governs SyncModelAdapter's thread pool (server.py passes it to HookLoader),
+    # so it, not MAX_WORKERS, is the concurrency ceiling for a sync model.
+    if args.thread_pool_workers:
+        env["THREAD_POOL_WORKERS"] = str(args.thread_pool_workers)
     for kv in args.env:
         k, _, v = kv.partition("=")
         env[k] = v
@@ -362,6 +430,37 @@ def container_state():
     if len(parts) != 3:
         return (False, False, None)
     return (parts[0] == "true", parts[1] == "true", int(parts[2]))
+
+
+def normalise_arch(name):
+    """Collapse the aliases docker, uname and platform.machine each prefer."""
+    if not name:
+        return None
+    name = name.strip().lower()
+    if name in {"x86_64", "amd64", "x86-64"}:
+        return "x86_64"
+    if name in {"arm64", "aarch64"}:
+        return "arm64"
+    return name
+
+
+def arch_info():
+    """Container arch vs host arch, and whether this run is emulated.
+
+    Recorded because absolute rps and latency from an emulated run do not transfer
+    to production, and a report that does not say so will eventually be quoted as
+    if it did. Memory figures survive emulation; throughput does not.
+    """
+    res = subprocess.run(
+        ["docker", "exec", CONTAINER, "uname", "-m"], capture_output=True, text=True
+    )
+    container = normalise_arch(res.stdout)
+    host = normalise_arch(platform.machine())
+    return {
+        "container": container,
+        "host": host,
+        "emulated": bool(container and host and container != host),
+    }
 
 
 def wait_ready(base_url, timeout):
@@ -550,6 +649,9 @@ def parse_args():
                    help="Pull the base image if it is missing instead of failing")
     p.add_argument("--memory", default="2g", help="Container memory limit (default: 2g)")
     p.add_argument("--max-workers", type=int, default=1, help="MAX_WORKERS (default: 1)")
+    p.add_argument("--thread-pool-workers", type=int, default=0,
+                   help="Set THREAD_POOL_WORKERS, which caps concurrency for a sync model "
+                        "(0 = leave unset, fastrag defaults to 2)")
     p.add_argument("--malloc-arena-max", type=int, default=0,
                    help="Set MALLOC_ARENA_MAX (0 = leave unset, matching production)")
     p.add_argument("--target-type", default="textgeneration")
@@ -593,6 +695,7 @@ def main():
         "messages": [{"role": "user", "content": "hello"}],
     }
     levels = [int(c) for c in args.concurrency.split(",") if c.strip()]
+    adapter = detect_adapter(model_dir)
 
     if args.no_build:
         if not image_exists(args.image):
@@ -609,7 +712,11 @@ def main():
     print(f"  image       {args.image}")
     print(f"  mem limit   {args.memory}   MAX_WORKERS={args.max_workers}"
           f"   MALLOC_ARENA_MAX={args.malloc_arena_max or 'unset'}")
+    print(f"  adapter     {adapter_label(adapter, args.thread_pool_workers, args.runner)}")
     print()
+    if adapter == "sync" and args.runner == "fastrag":
+        warn("Sync model: throughput is capped by the thread pool, not the event loop, "
+             "so a flat memory curve here says little about the async path.")
 
     if not args.no_build:
         build_wheel()
@@ -619,9 +726,11 @@ def main():
     report = {
         "runner": args.runner,
         "model_dir": str(model_dir),
+        "adapter": adapter,
         "memory_limit": args.memory,
         "max_workers": args.max_workers,
         "malloc_arena_max": args.malloc_arena_max or None,
+        "thread_pool_workers": args.thread_pool_workers or None,
         "phases": {},
         "sweep": [],
     }
@@ -629,6 +738,13 @@ def main():
     try:
         start_container(args, model_dir)
         report["startup_seconds"] = wait_ready(base_url, args.ready_timeout)
+
+        arch = arch_info()
+        report["arch"] = arch
+        if arch["emulated"]:
+            warn(f"Container is {arch['container']} on an {arch['host']} host: running under "
+                 f"emulation. Memory figures still hold; rps and latency do not transfer "
+                 f"to production.")
 
         sampler = Sampler(CONTAINER, args.sample_interval)
         sampler.start()
@@ -733,13 +849,32 @@ def main():
     print_report(report, args)
 
 
+def arch_summary(report):
+    """Short "x86_64 emulated on arm64" tag for the header, or "" if unknown."""
+    arch = report.get("arch") or {}
+    if not arch.get("container"):
+        return ""
+    if arch.get("emulated"):
+        return f"{arch['container']} emulated on {arch['host']}"
+    return arch["container"]
+
+
 def print_report(report, args):
     ph = report["phases"]
     print()
     print("=" * 72)
-    print(f"{report['runner']}  |  limit {report['memory_limit']}  |  "
-          f"MAX_WORKERS={report['max_workers']}")
+    title = (f"{report['runner']}  |  limit {report['memory_limit']}  |  "
+             f"MAX_WORKERS={report['max_workers']}")
+    tag = arch_summary(report)
+    print(f"{title}  |  {tag}" if tag else title)
     print("=" * 72)
+    label = adapter_label(
+        report.get("adapter"), report.get("thread_pool_workers"), report["runner"]
+    )
+    print(f"  {DIM}adapter: {label}{NC}")
+    if (report.get("arch") or {}).get("emulated"):
+        print(f"  {YELLOW}Emulated run: trust the memory columns and the shape of the "
+              f"curve, not absolute rps or latency.{NC}")
 
     print("\nBaselines (no traffic)")
     print("-" * 72)
@@ -767,9 +902,10 @@ def print_report(report, args):
             print(f"  {load['concurrency']:>5}  {load['rps']:>8.1f}  {load['p95_ms']:>8.0f}  "
                   f"{fmt_mb(anon_peak, 10)}  {fmt_mb(delta, 8)}  {fmt_mb(per_rps, 8, places=2)}  "
                   f"{load['errors']:>5}")
-        print(f"\n  {DIM}delta = peak above warm baseline. MB/rps = total anon / achieved rps -")
-        print(f"  compare against DRUM, which needs one worker process per concurrent "
-              f"request.{NC}")
+        print(f"\n  {DIM}delta = peak above warm baseline. MB/rps = total anon / achieved rps.")
+        print("  For the other side of the comparison run --runner drum against a sync")
+        print("  model, which holds a worker for each in-flight request instead of")
+        print(f"  awaiting; that side is not measured yet.{NC}")
 
     if report.get("died_at_concurrency") is not None:
         reason = "OOM-killed" if report.get("oom_killed") else "exited"
@@ -804,8 +940,10 @@ def print_report(report, args):
         for p in procs[:8]:
             print(f"  pid {p['pid']:>7}  rss {p['rss_mb']:>8.1f} MB  "
                   f"threads {p['threads']:>3}  {p['cmd'][:44]}")
-        print(f"  {DIM}per-process RSS double-counts pages shared by fork; the cgroup "
-              f"numbers above are authoritative.{NC}")
+        print(f"  {DIM}RSS counts pages shared between processes once per process, and")
+        print("  includes mapped file pages (interpreter, shared libs) the cgroup may")
+        print("  charge elsewhere - so it can exceed the cgroup total. The cgroup")
+        print(f"  numbers above are authoritative.{NC}")
 
     stamp = report.get("run_stamp", "")
     print(f"\n  raw samples: {report.get('samples_file')}")
