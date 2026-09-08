@@ -29,7 +29,8 @@ Usage:
         --model-dir tests/benchmark_model_rag_sync
 
 Prerequisites: Docker running, and the base image pulled:
-    docker pull datarobotdev/buzok-genai-custom-model-local-dropin-env:latest
+    docker pull --platform linux/amd64 \
+        datarobotdev/buzok-genai-custom-model-local-dropin-env:latest
 """
 
 import argparse
@@ -47,6 +48,8 @@ import httpx
 REPO_ROOT = Path(__file__).parent.parent
 DEFAULT_BASE_IMAGE = "datarobotdev/buzok-genai-custom-model-local-dropin-env:latest"
 DEFAULT_IMAGE = "fastrag-mem-test"
+# The base image is published for linux/amd64 only.
+DEFAULT_PLATFORM = "linux/amd64"
 CONTAINER = "fastrag-memprofile"
 MB = 1024.0 * 1024.0
 
@@ -188,13 +191,33 @@ def summarize_window(samples):
     }
 
 
+def fmt_mb(value, width, places=1, sign=""):
+    """Right-aligned MB reading, or "n/a" when the sample window was empty.
+
+    A missing reading is not a zero one. summarize_window returns None once the
+    sampler stops producing samples (the container died), and printing 0.0 there
+    reads as a measurement - 0 MB of anonymous memory never happens.
+    """
+    if value is None:
+        return f"{'n/a':>{width}}"
+    return f"{value:>{sign}{width}.{places}f}"
+
+
 # ---------------------------------------------------------------------------
 # Docker plumbing
 # ---------------------------------------------------------------------------
 
 
 def sh(cmd, check=True, capture=True):
-    return subprocess.run(cmd, check=check, capture_output=capture, text=True)
+    """Run a command, reporting what it printed if it fails."""
+    res = subprocess.run(cmd, check=False, capture_output=capture, text=True)
+    if check and res.returncode != 0:
+        bad(f"Command failed (exit {res.returncode}): {' '.join(cmd)}")
+        for stream in (res.stdout, res.stderr):
+            if stream:
+                print(stream.rstrip())
+        sys.exit(res.returncode)
+    return res
 
 
 def require_docker():
@@ -210,6 +233,11 @@ def image_exists(name):
 
 def build_wheel():
     info("Building wheel (uv build --wheel)...")
+    stale = list((REPO_ROOT / "dist").glob("datarobot_fastrag-*.whl"))
+    for wheel in stale:
+        wheel.unlink()
+    if stale:
+        info(f"Removed {len(stale)} previously built wheel(s) from dist/")
     sh(["uv", "build", "--wheel", "-q"])
     wheels = sorted((REPO_ROOT / "dist").glob("datarobot_fastrag-*.whl"))
     if not wheels:
@@ -218,13 +246,45 @@ def build_wheel():
     ok(f"Wheel: {wheels[-1].name}")
 
 
-def build_image(base_image, tag):
-    if not image_exists(base_image):
-        bad(f"Base image not present locally: {base_image}")
-        print(f"      docker pull {base_image}")
+def pull_base_image(base_image, platform):
+    info(f"Pulling {base_image} ({platform}) - one-time, several GB...")
+    # Inherit stdout so docker's own progress bars stay visible; this takes minutes.
+    if subprocess.run(["docker", "pull", "--platform", platform, base_image]).returncode != 0:
+        bad("Pull failed. If it was an auth error, run: docker login")
         sys.exit(1)
-    info(f"Building image {tag} from {base_image}...")
-    sh(["docker", "build", "-f", "Dockerfile.local-test", "-t", tag, "--quiet", "."])
+    ok(f"Pulled {base_image}")
+
+
+def require_base_image(base_image, platform, do_pull):
+    """Fail (or pull) before the caller spends time building anything."""
+    if image_exists(base_image):
+        return
+    if do_pull:
+        pull_base_image(base_image, platform)
+        return
+    bad(f"Base image not present locally: {base_image}")
+    print()
+    print("    It is a one-time download of several GB. The image ships linux/amd64")
+    print("    only, so --platform is required on an arm64 host:")
+    print()
+    print(f"      docker pull --platform {platform} \\")
+    print(f"          {base_image}")
+    print()
+    print("    Or let this script do it:")
+    print('      make mem-profile ARGS="--pull"')
+    print()
+    print("    A pull that prints 'no matching manifest for linux/arm64/v8' was missing")
+    print("    the --platform flag. One that is still running has not finished yet -")
+    print(f"    check with: docker image ls {base_image.split(':')[0]}")
+    sys.exit(1)
+
+
+def build_image(base_image, tag, platform):
+    info(f"Building image {tag} from {base_image} ({platform})...")
+    # Without --platform the daemon resolves FROM for the host arch, and the base
+    # image has no arm64 entry, so the build dies on Apple Silicon before it starts.
+    sh(["docker", "build", "--platform", platform,
+        "-f", "Dockerfile.local-test", "-t", tag, "--quiet", "."])
     ok(f"Image built: {tag}")
 
 
@@ -270,6 +330,7 @@ def start_container(args, model_dir):
 
     run_cmd = [
         "docker", "run", "-d",
+        "--platform", args.platform,
         "--name", CONTAINER,
         "--memory", args.memory,
         "--memory-swap", args.memory,
@@ -290,6 +351,19 @@ def start_container(args, model_dir):
 READY_PATHS = ("/ping/", "/health/")
 
 
+def container_state():
+    """(running, oom_killed, exit_code); running=False if the container is gone."""
+    res = subprocess.run(
+        ["docker", "inspect", "-f",
+         "{{.State.Running}} {{.State.OOMKilled}} {{.State.ExitCode}}", CONTAINER],
+        capture_output=True, text=True,
+    )
+    parts = res.stdout.split()
+    if len(parts) != 3:
+        return (False, False, None)
+    return (parts[0] == "true", parts[1] == "true", int(parts[2]))
+
+
 def wait_ready(base_url, timeout):
     info(f"Waiting for readiness (up to {timeout}s)...")
     t0 = time.time()
@@ -303,10 +377,7 @@ def wait_ready(base_url, timeout):
                     return elapsed
             except Exception:
                 pass
-        if subprocess.run(
-            ["docker", "inspect", "-f", "{{.State.Running}}", CONTAINER],
-            capture_output=True, text=True,
-        ).stdout.strip() != "true":
+        if not container_state()[0]:
             bad("Container exited during startup. Logs:")
             print(logs(tail=40))
             sys.exit(1)
@@ -471,7 +542,12 @@ def parse_args():
                    help="Model code dir mounted at /opt/model (default: tests/benchmark_model_rag)")
     p.add_argument("--image", default=DEFAULT_IMAGE, help="Image to run")
     p.add_argument("--base-image", default=DEFAULT_BASE_IMAGE, help="Base image for the build")
+    p.add_argument("--platform", default=DEFAULT_PLATFORM,
+                   help=f"Container platform (default: {DEFAULT_PLATFORM}, the only arch the "
+                        f"base image ships). On arm64 this runs under emulation.")
     p.add_argument("--no-build", action="store_true", help="Skip wheel + image build")
+    p.add_argument("--pull", action="store_true",
+                   help="Pull the base image if it is missing instead of failing")
     p.add_argument("--memory", default="2g", help="Container memory limit (default: 2g)")
     p.add_argument("--max-workers", type=int, default=1, help="MAX_WORKERS (default: 1)")
     p.add_argument("--malloc-arena-max", type=int, default=0,
@@ -518,6 +594,14 @@ def main():
     }
     levels = [int(c) for c in args.concurrency.split(",") if c.strip()]
 
+    if args.no_build:
+        if not image_exists(args.image):
+            bad(f"Image {args.image} not found and --no-build was passed.")
+            print("    Drop --no-build to build it, or pass --image with one that exists.")
+            sys.exit(1)
+    else:
+        require_base_image(args.base_image, args.platform, args.pull)
+
     print()
     print(f"{args.runner} memory profile")
     print("=" * 72)
@@ -529,10 +613,7 @@ def main():
 
     if not args.no_build:
         build_wheel()
-        build_image(args.base_image, args.image)
-    elif not image_exists(args.image):
-        bad(f"Image {args.image} not found and --no-build was passed.")
-        sys.exit(1)
+        build_image(args.base_image, args.image, args.platform)
 
     sampler = None
     report = {
@@ -573,28 +654,43 @@ def main():
         report["phases"]["baseline"] = summarize_window(
             sampler.window(baseline["t0"], baseline["t1"])
         )
-        base_anon = report["phases"]["baseline"]["anon_mean_mb"]
+        warm = report["phases"]["baseline"]
+        base_anon = warm["anon_mean_mb"] if warm else None
 
         # 4. concurrency sweep
         print()
         info(f"concurrency sweep: {levels}  ({args.phase_seconds}s each)")
+        died_at = None
         for c in levels:
             load = asyncio.run(drive(chat_url, payload, c, duration_s=args.phase_seconds))
             mem = summarize_window(sampler.window(load["t0"], load["t1"]))
             row = {"load": load, "mem": mem}
             report["sweep"].append(row)
-            delta = mem["anon_max_mb"] - base_anon if mem else 0.0
+            anon_peak = mem["anon_max_mb"] if mem else None
+            delta = None if anon_peak is None or base_anon is None else anon_peak - base_anon
             print(f"    c={c:<4} {load['rps']:7.1f} rps  p95={load['p95_ms']:6.0f}ms  "
-                  f"anon peak {mem['anon_max_mb']:7.1f} MB  (+{delta:6.1f})  "
+                  f"anon peak {fmt_mb(anon_peak, 7)} MB  ({fmt_mb(delta, 6, sign='+')})  "
                   f"err={load['errors']}")
             if load["errors"]:
                 print(f"         {RED}error sample:{NC} {load['error_sample']}")
+
+            # Death here is the headline result, not an error to sample past: the
+            # remaining levels would hammer nothing and report n/a rows.
+            running, oom_killed, exit_code = container_state()
+            if not running:
+                died_at = c
+                report["died_at_concurrency"] = c
+                report["oom_killed"] = oom_killed
+                reason = "OOM-killed" if oom_killed else f"exit code {exit_code}"
+                bad(f"Container died at c={c} ({reason}) - stopping the sweep. Logs:")
+                print(logs(tail=40))
+                break
             time.sleep(args.settle)
 
         report["procs_after_sweep"] = proc_snapshot()
 
         # 5. soak - leak detection
-        if args.soak_requests:
+        if args.soak_requests and died_at is None:
             print()
             info(f"soak: {args.soak_requests} requests @ c={args.soak_concurrency}")
             soak = asyncio.run(
@@ -607,9 +703,12 @@ def main():
                f"{soak['elapsed_s']:.0f}s")
 
         # 6. cooldown - retained memory
-        print()
-        cool = idle(args.cooldown_seconds, "cooldown")
-        report["phases"]["cooldown"] = summarize_window(sampler.window(cool["t0"], cool["t1"]))
+        if died_at is None:
+            print()
+            cool = idle(args.cooldown_seconds, "cooldown")
+            report["phases"]["cooldown"] = summarize_window(
+                sampler.window(cool["t0"], cool["t1"])
+            )
         report["kernel_peak_mb"] = sampler.peak_bytes() / MB
 
     finally:
@@ -653,7 +752,7 @@ def print_report(report, args):
     if report.get("startup_seconds"):
         print(f"  {'startup to ready':<26} {report['startup_seconds']:8.1f} s")
 
-    base_anon = ph["baseline"]["anon_mean_mb"] if ph.get("baseline") else 0.0
+    base_anon = ph["baseline"]["anon_mean_mb"] if ph.get("baseline") else None
 
     if report["sweep"]:
         print("\nConcurrency sweep")
@@ -662,14 +761,20 @@ def print_report(report, args):
               f"{'delta':>8}  {'MB/rps':>8}  {'err':>5}")
         for row in report["sweep"]:
             load, mem = row["load"], row["mem"]
-            delta = mem["anon_max_mb"] - base_anon
-            per_rps = mem["anon_max_mb"] / load["rps"] if load["rps"] > 0 else 0.0
+            anon_peak = mem["anon_max_mb"] if mem else None
+            delta = None if anon_peak is None or base_anon is None else anon_peak - base_anon
+            per_rps = anon_peak / load["rps"] if anon_peak is not None and load["rps"] > 0 else None
             print(f"  {load['concurrency']:>5}  {load['rps']:>8.1f}  {load['p95_ms']:>8.0f}  "
-                  f"{mem['anon_max_mb']:>10.1f}  {delta:>8.1f}  {per_rps:>8.2f}  "
+                  f"{fmt_mb(anon_peak, 10)}  {fmt_mb(delta, 8)}  {fmt_mb(per_rps, 8, places=2)}  "
                   f"{load['errors']:>5}")
         print(f"\n  {DIM}delta = peak above warm baseline. MB/rps = total anon / achieved rps -")
         print(f"  compare against DRUM, which needs one worker process per concurrent "
               f"request.{NC}")
+
+    if report.get("died_at_concurrency") is not None:
+        reason = "OOM-killed" if report.get("oom_killed") else "exited"
+        bad(f"Container {reason} at c={report['died_at_concurrency']} - "
+            f"levels above it were not measured.")
 
     leak = report.get("leak")
     if leak:

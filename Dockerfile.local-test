@@ -2,7 +2,8 @@ FROM datarobotdev/buzok-genai-custom-model-local-dropin-env:latest
 USER root
 COPY dist/datarobot_fastrag-*.whl /tmp/
 # --no-deps to retain base env pins and avoid sdist rebuilds; only adds fastrag for fair comparison
-RUN pip install --no-cache-dir --force-reinstall --no-deps /tmp/datarobot_fastrag-*.whl \
+RUN whl="$(ls /tmp/datarobot_fastrag-*.whl | sort -V | tail -1)" \
+ && pip install --no-cache-dir --force-reinstall --no-deps "$whl" \
  && pip install --no-cache-dir \
       python-multipart \
       "uvicorn[standard]" \

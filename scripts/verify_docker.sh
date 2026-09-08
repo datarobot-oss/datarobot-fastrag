@@ -7,11 +7,14 @@
 #   --keep  Leave the container and image running after the test (for manual inspection)
 #
 # Prerequisites: Docker running, base image pulled:
-#   docker pull datarobotdev/buzok-genai-custom-model-local-dropin-env:latest
+#   docker pull --platform linux/amd64 \
+#       datarobotdev/buzok-genai-custom-model-local-dropin-env:latest
 
 set -euo pipefail
 
 BASE_IMAGE="datarobotdev/buzok-genai-custom-model-local-dropin-env:latest"
+# The base image is published for linux/amd64 only
+PLATFORM="${PLATFORM:-linux/amd64}"
 IMAGE_NAME="fastrag-local-test"
 CONTAINER_NAME="fastrag-verify"
 PORT=8085
@@ -50,6 +53,9 @@ echo "────────────────────────�
 
 # ── 1. Build wheel ────────────────────────────────────────────────────────────
 info "Building wheel..."
+# A leftover wheel from an earlier version would join this one in the
+# Dockerfile's glob and make pip resolve two versions of the same package.
+rm -f dist/datarobot_fastrag-*.whl
 uv build --wheel -q
 WHEEL=$(ls dist/datarobot_fastrag-*.whl | sort -V | tail -1)
 pass "Wheel built: $(basename "$WHEEL")"
@@ -57,6 +63,7 @@ pass "Wheel built: $(basename "$WHEEL")"
 # ── 2. Build image ────────────────────────────────────────────────────────────
 info "Building Docker image (from $BASE_IMAGE)..."
 docker build \
+  --platform "$PLATFORM" \
   -f Dockerfile.local-test \
   -t "$IMAGE_NAME" \
   --quiet \
@@ -67,6 +74,7 @@ pass "Image built: $IMAGE_NAME"
 docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
 info "Starting container on port $PORT..."
 docker run -d \
+  --platform "$PLATFORM" \
   --name "$CONTAINER_NAME" \
   -p "${PORT}:8080" \
   -v "${MODEL_DIR}:/opt/model" \
