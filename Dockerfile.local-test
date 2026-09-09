@@ -1,6 +1,15 @@
 FROM datarobotdev/buzok-genai-custom-model-local-dropin-env:latest
 USER root
 COPY dist/datarobot_fastrag-*.whl /tmp/
-RUN pip install --force-reinstall /tmp/datarobot_fastrag-*.whl && rm /tmp/datarobot_fastrag-*.whl
+# --no-deps to retain base env pins and avoid sdist rebuilds; only adds fastrag for fair comparison
+RUN whl="$(ls /tmp/datarobot_fastrag-*.whl | sort -V | tail -1)" \
+ && pip install --no-cache-dir --force-reinstall --no-deps "$whl" \
+ && pip install --no-cache-dir \
+      python-multipart \
+      "uvicorn[standard]" \
+      opentelemetry-instrumentation-fastapi \
+      opentelemetry-instrumentation-openai \
+      opentelemetry-exporter-otlp \
+ && rm /tmp/datarobot_fastrag-*.whl
 USER envuser
 ENTRYPOINT ["/opt/code/start_server.sh"]

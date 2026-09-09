@@ -9,6 +9,11 @@ All notable changes to `datarobot-fastrag` are recorded here. The format follows
 
 <!-- version list -->
 
+## v0.2.5 (2026-09-08)
+
+- Added local container memory profiler (`make mem-profile`)
+- Added version bump command (`make bump`)
+
 ## v0.2.4 (2026-09-03)
 
 - Fixed `vectordatabase` target type predictions being returned as objects instead of lists
