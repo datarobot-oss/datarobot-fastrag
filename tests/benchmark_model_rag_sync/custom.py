@@ -4,12 +4,7 @@ from openai.types.chat import ChatCompletion
 
 
 def load_model(code_dir):
-    """DRUM needs an artifact or this hook; there is no artifact here.
-
-    fastrag tolerates a model dir with neither (it does not do artifact guessing),
-    so this exists for the DRUM side of the benchmark.
-    """
-    return "drum-rag-benchmark"
+    return "sync-rag-benchmark"
 
 
 def chat(completion_create_params, model=None, **kwargs):
@@ -28,7 +23,7 @@ def chat(completion_create_params, model=None, **kwargs):
             "id": "chatcmpl-rag-benchmark",
             "object": "chat.completion",
             "created": int(time.time()),
-            "model": "drum-rag-benchmark",
+            "model": "sync-rag-benchmark",
             "choices": [
                 {
                     "index": 0,
