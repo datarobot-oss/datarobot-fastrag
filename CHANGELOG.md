@@ -9,6 +9,10 @@ All notable changes to `datarobot-fastrag` are recorded here. The format follows
 
 <!-- version list -->
 
+## v0.2.6 (2026-09-09)
+
+- Allowed `GET /models` (`get_supported_llm_models`) for the `agenticworkflow` target type, matching the chat route
+
 ## v0.2.5 (2026-09-08)
 
 - Added local container memory profiler (`make mem-profile`)

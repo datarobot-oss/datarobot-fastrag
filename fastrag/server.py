@@ -377,9 +377,11 @@ async def get_supported_llm_models(
     model_metadata: ModelMetadata = Depends(get_model_metadata),
 ) -> Any:
     target_type = model_metadata.target_type
-    if target_type != TargetType.TEXT_GENERATION:
+    if target_type not in (TargetType.TEXT_GENERATION, TargetType.AGENTIC_WORKFLOW):
         raise NotFoundError(
-            detail="get_supported_llm_models is supported only for TextGen models",
+            detail=(
+                "get_supported_llm_models is supported only for TextGen and AgenticWorkflow models"
+            ),
         )
     _ensure_hook_available(model_adapter, HookName.GET_SUPPORTED_LLM_MODELS)
     return await _await_or_api_error(
