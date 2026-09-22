@@ -44,7 +44,7 @@ pyhumps==3.8.0
 pypdf>=6.6.0
 
 httpx==0.28.1
-# datarobot-moderations is installed as a dependency of datarobot-fastrag from PyPI
+# datarobot-moderations is installed as a dependency of the local datarobot-fastrag wheel
 
 backoff>=2.2.1
 pinecone==7.3.0

@@ -9,6 +9,10 @@ All notable changes to `datarobot-fastrag` are recorded here. The format follows
 
 <!-- version list -->
 
+## v0.2.7 (2026-09-15)
+
+- Forwarded incoming request headers to the chat and score hooks (previously only score_unstructured received them), fixing custom models that need the DataRobot identity token for downstream calls (e.g. external vector database deployments) in async FastRAG
+
 ## v0.2.6 (2026-09-09)
 
 - Allowed `GET /models` (`get_supported_llm_models`) for the `agenticworkflow` target type, matching the chat route

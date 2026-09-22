@@ -1,5 +1,6 @@
 import os
 
+import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 
@@ -50,6 +51,54 @@ def test_chat_valid_json(client):
     response = client.post("/chat/completions", json={"model": "test-model", "messages": []})
     assert response.status_code == 200
     assert response.json()["choices"][0]["message"]["content"] == "Hello form fastrag!"
+
+
+def test_chat_forwards_request_headers_to_hook(client):
+    captured_kwargs = {}
+
+    async def fake_chat(payload, **kwargs):
+        captured_kwargs.update(kwargs)
+        return {
+            "id": "association_id",
+            "object": "chat.completion",
+            "created": 0,
+            "model": "test-model",
+            "choices": [
+                {
+                    "index": 0,
+                    "finish_reason": "stop",
+                    "message": {"role": "assistant", "content": "ok"},
+                }
+            ],
+        }
+
+    client.app.state.model_adapter.chat = fake_chat
+
+    response = client.post(
+        "/chat/completions",
+        json={"model": "test-model", "messages": []},
+        headers={"X-DataRobot-Identity-Token": "test-token"},
+    )
+    assert response.status_code == 200
+    assert captured_kwargs["headers"]["x-datarobot-identity-token"] == "test-token"
+
+
+def test_predict_forwards_request_headers_to_hook(client):
+    captured_kwargs = {}
+
+    async def fake_score(data, **kwargs):
+        captured_kwargs.update(kwargs)
+        return pd.DataFrame({"predictions": ["score: foo"]})
+
+    client.app.state.model_adapter.score = fake_score
+
+    csv_content = b"a,promptText\n1,foo"
+    files = {"X": ("test.csv", csv_content, "text/csv")}
+    response = client.post(
+        "/predict/", files=files, headers={"X-DataRobot-Identity-Token": "test-token"}
+    )
+    assert response.status_code == 200
+    assert captured_kwargs["headers"]["x-datarobot-identity-token"] == "test-token"
 
 
 def test_chat_invalid_json(client):
