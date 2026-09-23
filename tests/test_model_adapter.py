@@ -91,3 +91,41 @@ async def test_sync_model_adapter_uses_thread_local_model() -> None:
     result = await adapter.score(pd.DataFrame({"a": [1]}))
     assert result["model_thread_id"] == result["current_thread_id"]
     adapter.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_async_model_adapter_drops_kwargs_for_two_arg_chat_hook() -> None:
+    async def chat(params: dict[str, Any], model: Any) -> dict[str, str]:
+        return {"chat": "ok"}
+
+    adapter = AsyncModelAdapter(hooks=HookRegistry(chat=chat), code_dir=".")
+    await adapter.initialize()
+
+    result = await adapter.chat({"msg": "hi"}, target_type="textgeneration", headers={"a": "b"})
+    assert result == {"chat": "ok"}
+
+
+@pytest.mark.asyncio
+async def test_async_model_adapter_forwards_kwargs_to_chat_hook_with_kwargs() -> None:
+    async def chat(params: dict[str, Any], model: Any, **kwargs: Any) -> dict[str, Any]:
+        return kwargs
+
+    adapter = AsyncModelAdapter(hooks=HookRegistry(chat=chat), code_dir=".")
+    await adapter.initialize()
+
+    result = await adapter.chat({"msg": "hi"}, target_type="textgeneration", headers={"a": "b"})
+    assert result == {"target_type": "textgeneration", "headers": {"a": "b"}}
+
+
+@pytest.mark.asyncio
+async def test_sync_model_adapter_drops_kwargs_for_two_arg_chat_hook() -> None:
+    def chat(params: dict[str, Any], model: Any) -> dict[str, str]:
+        return {"chat": "ok"}
+
+    adapter = SyncModelAdapter(hooks=HookRegistry(chat=chat), code_dir=".", max_workers=1)
+    await adapter.initialize()
+    try:
+        result = await adapter.chat({"msg": "hi"}, target_type="textgeneration", headers={"a": "b"})
+        assert result == {"chat": "ok"}
+    finally:
+        adapter.shutdown()

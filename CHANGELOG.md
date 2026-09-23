@@ -9,9 +9,10 @@ All notable changes to `datarobot-fastrag` are recorded here. The format follows
 
 <!-- version list -->
 
-## v0.2.7 (2026-09-15)
+## v0.2.7 (2026-09-23)
 
-- Forwarded incoming request headers to the chat and score hooks (previously only score_unstructured received them), fixing custom models that need the DataRobot identity token for downstream calls (e.g. external vector database deployments) in async FastRAG
+- Forwarded request headers to `chat` and `score` as lowercase `headers` kwarg
+- Stopped passing kwargs to `chat(completion_create_params, model)` when no moderation pipeline is loaded
 
 ## v0.2.6 (2026-09-09)
 

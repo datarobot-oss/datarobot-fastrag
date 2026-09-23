@@ -31,6 +31,18 @@ _MODERATION_MODULES = [
 ]
 
 
+def _chat_hook_kwargs(chat_hook: HookCallable, kwargs: Dict[str, Any]) -> Dict[str, Any]:
+    """Drop the extra kwargs for a ``chat(completion_create_params, model)`` hook.
+
+    DRUM and the moderation pipeline only pass kwargs such as ``target_type`` and
+    ``headers`` to chat hooks that declare more than two parameters.
+    """
+    if len(inspect.signature(chat_hook).parameters) > 2:
+        return kwargs
+    logger.debug("chat hook takes 2 args; kwargs are discarded")
+    return {}
+
+
 class ModelAdapter(ABC):
     def __init__(self, hooks: HookRegistry, code_dir: str):
         self.hooks = hooks
@@ -133,7 +145,9 @@ class AsyncModelAdapter(ModelAdapter):
             return await self._mod_pipeline.async_chat(
                 completion_create_params, self.model, chat_hook, **kwargs
             )
-        return await chat_hook(completion_create_params, self.model, **kwargs)
+        return await chat_hook(
+            completion_create_params, self.model, **_chat_hook_kwargs(chat_hook, kwargs)
+        )
 
     async def score_unstructured(self, data: Any, **kwargs: Any) -> Any:
         return await self.hooks.require(HookName.SCORE_UNSTRUCTURED)(data, self.model, **kwargs)
@@ -239,7 +253,9 @@ class SyncModelAdapter(ModelAdapter):
             return await self._mod_pipeline.async_chat(
                 completion_create_params, self.model, chat_hook, **kwargs
             )
-        return await self._run_in_executor(chat_hook, completion_create_params, **kwargs)
+        return await self._run_in_executor(
+            chat_hook, completion_create_params, **_chat_hook_kwargs(chat_hook, kwargs)
+        )
 
     async def score_unstructured(self, data: Any, **kwargs: Any) -> Any:
         return await self._run_in_executor(
