@@ -80,6 +80,7 @@ def test_chat_forwards_request_headers_to_hook(client):
         headers={"X-DataRobot-Identity-Token": "test-token"},
     )
     assert response.status_code == 200
+    assert captured_kwargs["headers"]["X-DataRobot-Identity-Token"] == "test-token"
     assert captured_kwargs["headers"]["x-datarobot-identity-token"] == "test-token"
 
 
@@ -98,6 +99,7 @@ def test_predict_forwards_request_headers_to_hook(client):
         "/predict/", files=files, headers={"X-DataRobot-Identity-Token": "test-token"}
     )
     assert response.status_code == 200
+    assert captured_kwargs["headers"]["X-DataRobot-Identity-Token"] == "test-token"
     assert captured_kwargs["headers"]["x-datarobot-identity-token"] == "test-token"
 
 
