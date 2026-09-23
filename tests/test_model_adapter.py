@@ -118,6 +118,32 @@ async def test_async_model_adapter_forwards_kwargs_to_chat_hook_with_kwargs() ->
 
 
 @pytest.mark.asyncio
+async def test_async_model_adapter_filters_kwargs_for_fixed_chat_hook_signature() -> None:
+    async def chat(params: dict[str, Any], model: Any, target_type: str) -> str:
+        return target_type
+
+    adapter = AsyncModelAdapter(hooks=HookRegistry(chat=chat), code_dir=".")
+    await adapter.initialize()
+
+    result = await adapter.chat({"msg": "hi"}, target_type="textgeneration", headers={"a": "b"})
+    assert result == "textgeneration"
+
+
+@pytest.mark.asyncio
+async def test_async_model_adapter_forwards_explicit_headers_kwarg() -> None:
+    async def chat(
+        params: dict[str, Any], model: Any, *, headers: dict[str, str]
+    ) -> dict[str, str]:
+        return headers
+
+    adapter = AsyncModelAdapter(hooks=HookRegistry(chat=chat), code_dir=".")
+    await adapter.initialize()
+
+    result = await adapter.chat({"msg": "hi"}, target_type="textgeneration", headers={"a": "b"})
+    assert result == {"a": "b"}
+
+
+@pytest.mark.asyncio
 async def test_sync_model_adapter_drops_kwargs_for_two_arg_chat_hook() -> None:
     def chat(params: dict[str, Any], model: Any) -> dict[str, str]:
         return {"chat": "ok"}

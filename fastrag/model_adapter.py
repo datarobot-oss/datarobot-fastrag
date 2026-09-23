@@ -32,15 +32,24 @@ _MODERATION_MODULES = [
 
 
 def _chat_hook_kwargs(chat_hook: HookCallable, kwargs: Dict[str, Any]) -> Dict[str, Any]:
-    """Drop the extra kwargs for a ``chat(completion_create_params, model)`` hook.
+    """Return the extra kwargs accepted by a chat hook.
 
-    DRUM and the moderation pipeline only pass kwargs such as ``target_type`` and
-    ``headers`` to chat hooks that declare more than two parameters.
+    Hooks that declare ``**kwargs`` receive all values; fixed signatures only
+    receive explicitly declared keyword parameters.
     """
-    if len(inspect.signature(chat_hook).parameters) > 2:
+    parameters = inspect.signature(chat_hook).parameters
+    if any(param.kind == inspect.Parameter.VAR_KEYWORD for param in parameters.values()):
         return kwargs
-    logger.debug("chat hook takes 2 args; kwargs are discarded")
-    return {}
+    accepted_kwargs = {
+        name: value
+        for name, value in kwargs.items()
+        if name in parameters
+        and parameters[name].kind
+        in (inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY)
+    }
+    if dropped_kwargs := kwargs.keys() - accepted_kwargs.keys():
+        logger.debug("chat hook does not accept kwargs: %s", sorted(dropped_kwargs))
+    return accepted_kwargs
 
 
 class ModelAdapter(ABC):
