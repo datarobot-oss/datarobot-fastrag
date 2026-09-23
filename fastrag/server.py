@@ -264,6 +264,7 @@ async def predict(
         "class_labels": model_metadata.inference_model.class_labels,
         "target_type": model_metadata.target_type,
         "target_name": model_metadata.inference_model.target_name,
+        "headers": request.headers,
     }
 
     predictions = await _await_or_api_error(
@@ -291,6 +292,7 @@ async def predict(
     response_model_exclude_none=True,
 )
 async def chat_completions(
+    request: Request,
     body: OpenAIChatCompletionRequest,
     model_adapter: ModelAdapter = Depends(get_model_adapter),
     model_metadata: ModelMetadata = Depends(get_model_metadata),
@@ -298,7 +300,8 @@ async def chat_completions(
     _ensure_hook_available(model_adapter, HookName.CHAT)
 
     target_type = model_metadata.target_type
-    kwargs = {"target_type": target_type}
+    # Headers are case-insensitive
+    kwargs = {"target_type": target_type, "headers": request.headers}
 
     response = await _await_or_api_error(
         model_adapter.chat(body.model_dump(exclude_none=True), **kwargs),

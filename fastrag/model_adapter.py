@@ -31,6 +31,27 @@ _MODERATION_MODULES = [
 ]
 
 
+def _chat_hook_kwargs(chat_hook: HookCallable, kwargs: Dict[str, Any]) -> Dict[str, Any]:
+    """Return the extra kwargs accepted by a chat hook.
+
+    Hooks that declare ``**kwargs`` receive all values; fixed signatures only
+    receive explicitly declared keyword parameters.
+    """
+    parameters = inspect.signature(chat_hook).parameters
+    if any(param.kind == inspect.Parameter.VAR_KEYWORD for param in parameters.values()):
+        return kwargs
+    accepted_kwargs = {
+        name: value
+        for name, value in kwargs.items()
+        if name in parameters
+        and parameters[name].kind
+        in (inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY)
+    }
+    if dropped_kwargs := kwargs.keys() - accepted_kwargs.keys():
+        logger.debug("chat hook does not accept kwargs: %s", sorted(dropped_kwargs))
+    return accepted_kwargs
+
+
 class ModelAdapter(ABC):
     def __init__(self, hooks: HookRegistry, code_dir: str):
         self.hooks = hooks
@@ -133,7 +154,9 @@ class AsyncModelAdapter(ModelAdapter):
             return await self._mod_pipeline.async_chat(
                 completion_create_params, self.model, chat_hook, **kwargs
             )
-        return await chat_hook(completion_create_params, self.model, **kwargs)
+        return await chat_hook(
+            completion_create_params, self.model, **_chat_hook_kwargs(chat_hook, kwargs)
+        )
 
     async def score_unstructured(self, data: Any, **kwargs: Any) -> Any:
         return await self.hooks.require(HookName.SCORE_UNSTRUCTURED)(data, self.model, **kwargs)
@@ -239,7 +262,9 @@ class SyncModelAdapter(ModelAdapter):
             return await self._mod_pipeline.async_chat(
                 completion_create_params, self.model, chat_hook, **kwargs
             )
-        return await self._run_in_executor(chat_hook, completion_create_params, **kwargs)
+        return await self._run_in_executor(
+            chat_hook, completion_create_params, **_chat_hook_kwargs(chat_hook, kwargs)
+        )
 
     async def score_unstructured(self, data: Any, **kwargs: Any) -> Any:
         return await self._run_in_executor(

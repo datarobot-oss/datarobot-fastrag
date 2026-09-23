@@ -9,6 +9,11 @@ All notable changes to `datarobot-fastrag` are recorded here. The format follows
 
 <!-- version list -->
 
+## v0.2.7 (2026-09-23)
+
+- Forwarded request headers to `chat` and `score` as a case-insensitive `headers` kwarg
+- Passed a chat hook just the kwargs it declares when no moderation pipeline is loaded, fixes issue `unexpected keyword argument 'target_type'` for LLM blueprint plus vector database RAG custom models
+
 ## v0.2.6 (2026-09-09)
 
 - Allowed `GET /models` (`get_supported_llm_models`) for the `agenticworkflow` target type, matching the chat route
