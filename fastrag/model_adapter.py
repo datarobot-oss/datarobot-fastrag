@@ -152,7 +152,10 @@ class AsyncModelAdapter(ModelAdapter):
         chat_hook = self.hooks.require(HookName.CHAT)
         if self._mod_pipeline is not None:
             return await self._mod_pipeline.async_chat(
-                completion_create_params, self.model, chat_hook, **kwargs
+                completion_create_params,
+                self.model,
+                chat_hook,
+                **_chat_hook_kwargs(chat_hook, kwargs),
             )
         return await chat_hook(
             completion_create_params, self.model, **_chat_hook_kwargs(chat_hook, kwargs)
@@ -260,7 +263,10 @@ class SyncModelAdapter(ModelAdapter):
         chat_hook = self.hooks.require(HookName.CHAT)
         if self._mod_pipeline is not None:
             return await self._mod_pipeline.async_chat(
-                completion_create_params, self.model, chat_hook, **kwargs
+                completion_create_params,
+                self.model,
+                chat_hook,
+                **_chat_hook_kwargs(chat_hook, kwargs),
             )
         return await self._run_in_executor(
             chat_hook, completion_create_params, **_chat_hook_kwargs(chat_hook, kwargs)
