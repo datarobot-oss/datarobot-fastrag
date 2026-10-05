@@ -1,10 +1,7 @@
 """
 Integration tests: chat hook signatures vs. the real moderation pipeline.
 
-FastRAG's server passes ``target_type`` and ``headers`` to every chat hook. Without a
-moderation pipeline, ``_chat_hook_kwargs`` drops whatever a fixed-signature hook does not
-declare. With a pipeline, kwargs go to ``async_chat`` unfiltered and moderations decides what
-to forward, so hooks must tolerate (or be shielded from) the extra kwargs.
+FastRAG passes only the server kwargs declared by each chat hook, with or without moderation.
 
 Requires datarobot-moderations:
 
@@ -15,7 +12,6 @@ import os
 from typing import Any
 from typing import Callable
 from typing import Dict
-from typing import Iterator
 
 import pytest
 from openai.types.chat import ChatCompletion
@@ -107,11 +103,7 @@ def _adapter(kind: str, chat: Callable[..., Any]) -> ModelAdapter:
     return SyncModelAdapter(hooks=hooks, code_dir=_MODERATED_MODEL_DIR, max_workers=1)
 
 
-@pytest.fixture(params=["sync", "async"])
-def adapter_kind(request: pytest.FixtureRequest) -> Iterator[str]:
-    yield request.param
-
-
+@pytest.mark.parametrize("adapter_kind", ["sync", "async"])
 @pytest.mark.parametrize(
     "shape", ["two_args", "declares_association_id", "declares_target_type", "var_kwargs"]
 )
