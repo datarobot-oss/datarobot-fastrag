@@ -1,27 +1,30 @@
 #!/bin/bash
 set -e
 
-# TODO: review dependencies https://datarobot.atlassian.net/browse/BUZZOK-24542
-microdnf update -y
-microdnf install -y gcc gcc-c++ which \
-  nginx \
-  tar gzip unzip zip wget vim-minimal nano
+# Minimal execution environment for datarobot-fastrag.
+#
+# datarobot-fastrag is installed from PyPI below and pulls its full required
+# dependency closure automatically (datarobot-moderations core, fastapi, uvicorn,
+# pydantic, openai, httpx, opentelemetry, numpy, pandas, tiktoken, rouge-score,
+# nltk, ...). The heavy "batteries" (torch, transformers, faiss, onnx, langchain,
+# llama-index, nemoguardrails, vector-DB clients, ...) and the DataRobot MLOps
+# Java monitoring agent are intentionally NOT installed. Add any per-model deps
+# to requirements.txt.
 
-chmod -R 707 /var/lib/nginx /var/log/nginx
+# No system build tools: the entire required closure installs from prebuilt
+# manylinux wheels (verified on ubi9/python-312-minimal), so gcc/g++ are not
+# needed. No java-openjdk / nginx either -- this env runs `fastrag server`
+# (uvicorn) directly, with no MLOps Java agent and no nginx proxy.
+microdnf update -y
+microdnf clean all
 
 pip3 install -U pip --no-cache-dir
 pip3 install --no-cache-dir wheel setuptools
 
-pip3 install -r requirements.txt \
-  --no-cache-dir \
-  --upgrade-strategy eager \
-  --extra-index-url https://download.pytorch.org/whl/cpu
+# Per-model deps, declared in requirements.txt.
+pip3 install -r requirements.txt --no-cache-dir --upgrade-strategy eager
 
+# datarobot-fastrag + its full required closure (incl. datarobot-moderations core).
 pip3 install --no-cache-dir datarobot-fastrag
-# datarobot-moderations is installed as a dependency of datarobot-fastrag
 
-microdnf upgrade
-microdnf clean all
-
-rm -rf dep.constraints
-rm -rf requirements.txt
+rm -f requirements.txt
