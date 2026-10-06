@@ -81,6 +81,8 @@ URL_PREFIX = os.environ.get("URL_PREFIX", "").rstrip("/")
 # of its own that carries one prediction
 DRUM_VERSION = os.environ.get("FASTRAG_DRUM_VERSION", "1.17.12")
 DRUM_VERSION_HEADER_NAME = b"x-drum-version"
+STREAM_FAILED_STATE_KEY = "fastrag_stream_failed"
+STREAM_ERROR_MESSAGE = "Chat completion stream failed."
 
 
 class TracedRoute(APIRoute):
@@ -136,6 +138,9 @@ class PredictionStatsMiddleware:
             if reported or scope.get("endpoint") not in self._endpoints:
                 return
             reported = True
+            if scope.get("state", {}).get(STREAM_FAILED_STATE_KEY):
+                # The 200 is already on the wire; the stream failed after it.
+                final_status = 500
             if 300 <= final_status < 400:
                 return
             reporter.report(
@@ -308,7 +313,7 @@ async def chat_completions(
         detail="Chat completion failed.",
         log_message="Chat completion failed.",
     )
-    return _format_chat_response(response)
+    return _format_chat_response(response, request)
 
 
 @router.post("/predictUnstructured/")
@@ -394,15 +399,19 @@ async def get_supported_llm_models(
     )
 
 
-def _format_chat_response(response: Any) -> Any:
+def _format_chat_response(response: Any, request: Request | None = None) -> Any:
+    def mark_stream_failed() -> None:
+        if request is not None:
+            request.scope.setdefault("state", {})[STREAM_FAILED_STATE_KEY] = True
+
     if _is_async_streaming_response(response):
         return StreamingResponse(
-            _astream_openai_chunks(response),
+            _astream_openai_chunks(response, mark_stream_failed),
             media_type="text/event-stream",
         )
     if _is_streaming_response(response):
         return StreamingResponse(
-            _stream_openai_chunks(response),
+            _stream_openai_chunks(response, mark_stream_failed),
             media_type="text/event-stream",
         )
     return _to_jsonable(response)
@@ -433,17 +442,40 @@ def _to_jsonable(response: Any) -> Any:
     return response
 
 
-def _stream_openai_chunks(stream: Iterable[Any]) -> Iterator[str]:
-    for chunk in stream:
-        yield from _format_chunk_as_sse_lines(chunk)
+def _stream_error_event() -> str:
+    # The 200 status is already sent, so the failure has to be reported in-band.
+    # Generic message: the real cause is only logged, as for non-streaming errors.
+    error = {"error": {"message": STREAM_ERROR_MESSAGE, "type": "server_error", "code": None}}
+    return f"data: {json.dumps(error)}\n\n"
+
+
+def _stream_openai_chunks(
+    stream: Iterable[Any], on_error: Callable[[], None] | None = None
+) -> Iterator[str]:
+    try:
+        for chunk in stream:
+            yield from _format_chunk_as_sse_lines(chunk)
+    except Exception:
+        logger.exception("Chat completion stream failed mid-stream.")
+        if on_error is not None:
+            on_error()
+        yield _stream_error_event()
 
     yield "data: [DONE]\n\n"
 
 
-async def _astream_openai_chunks(stream: AsyncIterable[Any]) -> AsyncIterator[str]:
-    async for chunk in stream:
-        for line in _format_chunk_as_sse_lines(chunk):
-            yield line
+async def _astream_openai_chunks(
+    stream: AsyncIterable[Any], on_error: Callable[[], None] | None = None
+) -> AsyncIterator[str]:
+    try:
+        async for chunk in stream:
+            for line in _format_chunk_as_sse_lines(chunk):
+                yield line
+    except Exception:
+        logger.exception("Chat completion stream failed mid-stream.")
+        if on_error is not None:
+            on_error()
+        yield _stream_error_event()
 
     yield "data: [DONE]\n\n"
 

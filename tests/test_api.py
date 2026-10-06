@@ -1,3 +1,4 @@
+import json
 import os
 
 import pandas as pd
@@ -151,6 +152,79 @@ def test_chat_async_streaming_response(client):
         assert response.headers["content-type"].startswith("text/event-stream")
         assert "data: [DONE]" in body
         assert "chat.completion.chunk" in body
+
+
+def _stream_chunk(content):
+    return {"object": "chat.completion.chunk", "choices": [{"delta": {"content": content}}]}
+
+
+def _read_stream(client):
+    with client.stream(
+        "POST",
+        "/chat/completions",
+        json={
+            "model": "test-model",
+            "messages": [{"role": "user", "content": "hi"}],
+            "stream": True,
+        },
+    ) as response:
+        return response, "".join(response.iter_text())
+
+
+def _assert_error_event_then_done(body):
+    events = [e for e in body.split("\n\n") if e]
+    assert events[-1] == "data: [DONE]"
+    error = json.loads(events[-2].removeprefix("data: "))["error"]
+    assert error["type"] == "server_error"
+    assert "boom" not in body  # real cause is logged, not leaked to the client
+    return events
+
+
+@pytest.mark.parametrize("is_async", [False, True])
+def test_chat_stream_failure_emits_error_event_and_done(client, caplog, is_async):
+    async def fake_chat(payload, **kwargs):
+        if is_async:
+
+            async def agen():
+                yield _stream_chunk("Echo:")
+                yield _stream_chunk("hi")
+                raise RuntimeError("boom")
+
+            return agen()
+
+        def gen():
+            yield _stream_chunk("Echo:")
+            yield _stream_chunk("hi")
+            raise RuntimeError("boom")
+
+        return gen()
+
+    client.app.state.model_adapter.chat = fake_chat
+
+    with caplog.at_level("ERROR", logger="fastrag.server"):
+        response, body = _read_stream(client)
+
+    assert response.status_code == 200
+    events = _assert_error_event_then_done(body)
+    assert len(events) == 4  # two chunks, error event, [DONE]
+    assert "Echo:" in events[0]
+    assert any("failed mid-stream" in r.getMessage() and r.exc_info for r in caplog.records)
+
+
+def test_chat_stream_failure_before_first_chunk_emits_error_event(client):
+    async def fake_chat(payload, **kwargs):
+        def gen():
+            raise RuntimeError("boom")
+            yield
+
+        return gen()
+
+    client.app.state.model_adapter.chat = fake_chat
+
+    response, body = _read_stream(client)
+    assert response.status_code == 200
+    events = _assert_error_event_then_done(body)
+    assert len(events) == 2
 
 
 def test_predict_contract_violation_returns_422(monkeypatch, test_model_dir):
