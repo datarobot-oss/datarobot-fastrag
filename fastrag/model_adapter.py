@@ -150,13 +150,15 @@ class AsyncModelAdapter(ModelAdapter):
 
     async def chat(self, completion_create_params: Dict[str, Any], **kwargs: Any) -> Any:
         chat_hook = self.hooks.require(HookName.CHAT)
+        hook_kwargs = _chat_hook_kwargs(chat_hook, kwargs)
         if self._mod_pipeline is not None:
             return await self._mod_pipeline.async_chat(
-                completion_create_params, self.model, chat_hook, **kwargs
+                completion_create_params,
+                self.model,
+                chat_hook,
+                **hook_kwargs,
             )
-        return await chat_hook(
-            completion_create_params, self.model, **_chat_hook_kwargs(chat_hook, kwargs)
-        )
+        return await chat_hook(completion_create_params, self.model, **hook_kwargs)
 
     async def score_unstructured(self, data: Any, **kwargs: Any) -> Any:
         return await self.hooks.require(HookName.SCORE_UNSTRUCTURED)(data, self.model, **kwargs)
@@ -258,13 +260,15 @@ class SyncModelAdapter(ModelAdapter):
 
     async def chat(self, completion_create_params: Dict[str, Any], **kwargs: Any) -> Any:
         chat_hook = self.hooks.require(HookName.CHAT)
+        hook_kwargs = _chat_hook_kwargs(chat_hook, kwargs)
         if self._mod_pipeline is not None:
             return await self._mod_pipeline.async_chat(
-                completion_create_params, self.model, chat_hook, **kwargs
+                completion_create_params,
+                self.model,
+                chat_hook,
+                **hook_kwargs,
             )
-        return await self._run_in_executor(
-            chat_hook, completion_create_params, **_chat_hook_kwargs(chat_hook, kwargs)
-        )
+        return await self._run_in_executor(chat_hook, completion_create_params, **hook_kwargs)
 
     async def score_unstructured(self, data: Any, **kwargs: Any) -> Any:
         return await self._run_in_executor(
