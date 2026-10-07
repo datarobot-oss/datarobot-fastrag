@@ -1,6 +1,6 @@
 [project]
 name = "datarobot-fastrag"
-version = "0.2.7"
+version = "0.2.8"
 description = "Async FastAPI runner for DataRobot custom LLM and RAG models"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -33,7 +33,7 @@ fastrag = "fastrag.main:main"
 
 [dependency-groups]
 integration = [
-    "datarobot-moderations>=11.2.47",
+    "datarobot-moderations[datarobot-sdk]>=11.2.47",
 ]
 dev = [
     "aiohttp>=3.13.3",

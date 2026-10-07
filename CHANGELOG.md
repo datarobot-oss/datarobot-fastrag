@@ -9,6 +9,11 @@ All notable changes to `datarobot-fastrag` are recorded here. The format follows
 
 <!-- version list -->
 
+## v0.2.8 (2026-10-02)
+
+- Passed a chat hook just the kwargs it declares when a moderation pipeline is loaded, so moderated chat no longer raises `unexpected keyword argument` for hooks that omit `target_type` or `headers`
+- Bumped `datarobot-moderations` to 11.3.7
+
 ## v0.2.7 (2026-09-23)
 
 - Forwarded request headers to `chat` and `score` as a case-insensitive `headers` kwarg
