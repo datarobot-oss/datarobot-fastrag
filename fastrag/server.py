@@ -198,7 +198,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         if otel_providers is not None:
             otel_providers.trace_provider.shutdown()
             otel_providers.metric_provider.shutdown()
-            otel_providers.logger_provider.shutdown()  # type: ignore[no-untyped-call]
+            otel_providers.logger_provider.shutdown()
 
 
 router = APIRouter(prefix=URL_PREFIX, route_class=TracedRoute)
