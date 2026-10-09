@@ -377,6 +377,39 @@ def test_hook_failure_is_reported_once_and_stamped(stats_client, monkeypatch):
     assert record["systemError"] is True
 
 
+@pytest.mark.parametrize("is_async", [False, True])
+def test_mid_stream_failure_is_reported_as_a_system_error(stats_client, monkeypatch, is_async):
+    client, collector = stats_client
+    chunk = {"object": "chat.completion.chunk", "choices": [{"delta": {"content": "hi"}}]}
+
+    async def chat(*args, **kwargs):
+        if is_async:
+
+            async def agen():
+                yield chunk
+                raise RuntimeError("boom")
+
+            return agen()
+
+        def gen():
+            yield chunk
+            raise RuntimeError("boom")
+
+        return gen()
+
+    monkeypatch.setattr(client.app.state.model_adapter, "chat", chat)
+    with client.stream(
+        "POST", "/chat/completions", json={"model": "m", "messages": [], "stream": True}
+    ) as response:
+        body = "".join(response.iter_text())
+    assert response.status_code == 200
+    assert "data: [DONE]" in body
+    (record,) = wait_for_records(collector)
+    assert record["numPredictions"] == 0
+    assert record["systemError"] is True
+    assert record["userError"] is False
+
+
 def test_crash_outside_the_middleware_is_still_stamped(monkeypatch, test_model_dir):
     """A handler registered for Exception answers above every user middleware."""
     monkeypatch.setenv("CODE_DIR", test_model_dir)
@@ -388,7 +421,7 @@ def test_crash_outside_the_middleware_is_still_stamped(monkeypatch, test_model_d
         await reporter.start()
         return reporter
 
-    def boom(response):
+    def boom(*args):
         raise RuntimeError("not an ApiError")
 
     monkeypatch.setattr(server_module, "start_reporter", fake_start_reporter)
