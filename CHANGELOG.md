@@ -9,6 +9,10 @@ All notable changes to `datarobot-fastrag` are recorded here. The format follows
 
 <!-- version list -->
 
+## v0.2.9 (2026-10-09)
+
+- Fixed chat streams that fail mid-response by ending them with a generic `server_error` SSE event and `data: [DONE]`, and reported them to MLOps monitoring stats as system errors instead of successes
+
 ## v0.2.8 (2026-10-02)
 
 - Passed a chat hook just the kwargs it declares when a moderation pipeline is loaded, so moderated chat no longer raises `unexpected keyword argument` for hooks that omit `target_type` or `headers`
