@@ -6,6 +6,7 @@ import os
 import threading
 from abc import ABC
 from abc import abstractmethod
+from concurrent.futures import Future
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 from typing import Callable
@@ -52,12 +53,18 @@ def _chat_hook_kwargs(chat_hook: HookCallable, kwargs: Dict[str, Any]) -> Dict[s
     return accepted_kwargs
 
 
+def _log_failed_metrics_upload(future: "Future[Any]") -> None:
+    if (exc := future.exception()) is not None:
+        logger.error("Moderation custom metrics upload failed.", exc_info=exc)
+
+
 class ModelAdapter(ABC):
     def __init__(self, hooks: HookRegistry, code_dir: str):
         self.hooks = hooks
         self.code_dir = code_dir
         self.model: Any = None
         self._mod_pipeline: Optional[Any] = None
+        self._metrics_upload_executor: Optional[ThreadPoolExecutor] = None
 
     def _load_moderation_pipeline(self) -> Optional[Any]:
         """Load a datarobot_dome moderation pipeline if moderation_config.yaml is present."""
@@ -81,6 +88,7 @@ class ModelAdapter(ABC):
         target_type = self._resolve_target_type()
         pipeline = moderation_pipeline_factory(target_type, model_dir=self.code_dir)
         if pipeline is not None:
+            self._offload_sync_metric_uploads(pipeline)
             logger.info(
                 "Moderation pipeline loaded: %s (target_type=%s)",
                 type(pipeline).__name__,
@@ -89,6 +97,39 @@ class ModelAdapter(ABC):
         else:
             logger.info("moderation_pipeline_factory returned None for target_type=%s", target_type)
         return pipeline
+
+    def _offload_sync_metric_uploads(self, mod_pipeline: Any) -> None:
+        """Keep the moderation library's blocking metric uploads off the event loop.
+
+        The library uploads custom metrics with ``loop.run_until_complete``. Its streaming path
+        already does that from a background thread, but the non-streaming ``async_chat`` path
+        calls it on the event loop thread, which raises "Cannot run the event loop while another
+        loop is running". Uploads made from the event loop are handed to a single worker thread
+        instead, so they run one at a time on the library's own loop.
+        """
+        inner: Any = getattr(mod_pipeline, "_pipeline", None)
+        upload = getattr(inner, "upload_custom_metrics", None)
+        if upload is None:
+            logger.warning("Moderation pipeline has no upload_custom_metrics; leaving it as is.")
+            return
+
+        executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="fastrag-metrics")
+        self._metrics_upload_executor = executor
+
+        def upload_custom_metrics(payload: Any) -> None:
+            try:
+                asyncio.get_running_loop()
+            except RuntimeError:
+                upload(payload)
+                return
+            executor.submit(upload, payload).add_done_callback(_log_failed_metrics_upload)
+
+        inner.upload_custom_metrics = upload_custom_metrics
+
+    def _shutdown_metrics_upload_executor(self) -> None:
+        if self._metrics_upload_executor is not None:
+            self._metrics_upload_executor.shutdown(wait=True)
+            self._metrics_upload_executor = None
 
     def _resolve_target_type(self) -> str:
         """Return target type string for moderation factory.
@@ -116,7 +157,12 @@ class ModelAdapter(ABC):
     async def score(self, data: pd.DataFrame, **kwargs: Any) -> Any: ...
 
     @abstractmethod
-    async def chat(self, completion_create_params: Dict[str, Any], **kwargs: Any) -> Any: ...
+    async def chat(
+        self,
+        completion_create_params: Dict[str, Any],
+        association_id: Optional[str] = None,
+        **kwargs: Any,
+    ) -> Any: ...
 
     @abstractmethod
     async def score_unstructured(self, data: Any, **kwargs: Any) -> Any: ...
@@ -148,7 +194,12 @@ class AsyncModelAdapter(ModelAdapter):
             return await self._mod_pipeline.async_score(data, self.model, score_hook, **kwargs)
         return await score_hook(data, self.model, **kwargs)
 
-    async def chat(self, completion_create_params: Dict[str, Any], **kwargs: Any) -> Any:
+    async def chat(
+        self,
+        completion_create_params: Dict[str, Any],
+        association_id: Optional[str] = None,
+        **kwargs: Any,
+    ) -> Any:
         chat_hook = self.hooks.require(HookName.CHAT)
         hook_kwargs = _chat_hook_kwargs(chat_hook, kwargs)
         if self._mod_pipeline is not None:
@@ -156,6 +207,7 @@ class AsyncModelAdapter(ModelAdapter):
                 completion_create_params,
                 self.model,
                 chat_hook,
+                association_id=association_id,
                 **hook_kwargs,
             )
         return await chat_hook(completion_create_params, self.model, **hook_kwargs)
@@ -167,7 +219,7 @@ class AsyncModelAdapter(ModelAdapter):
         return await self.hooks.require(HookName.GET_SUPPORTED_LLM_MODELS)(self.model)
 
     def shutdown(self) -> None:
-        pass
+        self._shutdown_metrics_upload_executor()
 
 
 class SyncModelAdapter(ModelAdapter):
@@ -258,7 +310,12 @@ class SyncModelAdapter(ModelAdapter):
             return await self._mod_pipeline.async_score(data, self.model, score_hook, **kwargs)
         return await self._run_in_executor(score_hook, data, **kwargs)
 
-    async def chat(self, completion_create_params: Dict[str, Any], **kwargs: Any) -> Any:
+    async def chat(
+        self,
+        completion_create_params: Dict[str, Any],
+        association_id: Optional[str] = None,
+        **kwargs: Any,
+    ) -> Any:
         chat_hook = self.hooks.require(HookName.CHAT)
         hook_kwargs = _chat_hook_kwargs(chat_hook, kwargs)
         if self._mod_pipeline is not None:
@@ -266,6 +323,7 @@ class SyncModelAdapter(ModelAdapter):
                 completion_create_params,
                 self.model,
                 chat_hook,
+                association_id=association_id,
                 **hook_kwargs,
             )
         return await self._run_in_executor(chat_hook, completion_create_params, **hook_kwargs)
@@ -279,6 +337,7 @@ class SyncModelAdapter(ModelAdapter):
         return await self._run_in_executor(self.hooks.require(HookName.GET_SUPPORTED_LLM_MODELS))
 
     def shutdown(self) -> None:
+        self._shutdown_metrics_upload_executor()
         if self._executor:
             self._executor.shutdown(wait=True, cancel_futures=True)
             for loop in self._worker_loops:

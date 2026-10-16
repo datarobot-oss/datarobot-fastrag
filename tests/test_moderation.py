@@ -9,6 +9,7 @@ Integration tests require datarobot-moderations to be installed:
 
 import asyncio
 import os
+import threading
 from typing import Any
 from unittest.mock import AsyncMock
 from unittest.mock import MagicMock
@@ -104,13 +105,57 @@ async def test_chat_calls_mod_pipeline_when_present() -> None:
     adapter._mod_pipeline = mock_pipeline
     try:
         params = {"messages": [{"role": "user", "content": "hi"}]}
-        await adapter.chat(params)
+        await adapter.chat(params, association_id="assoc-1")
         assert mock_pipeline.async_chat.call_count == 1
         call_args = mock_pipeline.async_chat.call_args
         assert call_args.args[0] == params
         assert call_args.args[2] is _dummy_chat
+        assert call_args.kwargs["association_id"] == "assoc-1"
     finally:
         adapter.shutdown()
+
+
+class _BlockingUploadPipeline:
+    """Mimics datarobot_dome: uploads metrics with a blocking ``run_until_complete``."""
+
+    def __init__(self) -> None:
+        self.upload_threads: list[str] = []
+        self._loop = asyncio.new_event_loop()
+
+    def upload_custom_metrics(self, payload: Any) -> None:
+        self._loop.run_until_complete(asyncio.sleep(0))
+        self.upload_threads.append(threading.current_thread().name)
+
+    def report_custom_metrics(self, result_df: Any) -> None:
+        self.upload_custom_metrics({"buckets": [result_df]})
+
+
+async def test_metric_uploads_from_event_loop_run_off_loop() -> None:
+    """A blocking upload made on the event loop thread must not raise and must still run."""
+    inner = _BlockingUploadPipeline()
+    adapter = _make_adapter(chat=_dummy_chat)
+    adapter._offload_sync_metric_uploads(MagicMock(_pipeline=inner))
+
+    # Without the offload this raises "Cannot run the event loop while another loop is running".
+    inner.report_custom_metrics("row")
+    adapter.shutdown()
+
+    assert len(inner.upload_threads) == 1
+    assert inner.upload_threads[0].startswith("fastrag-metrics")
+
+
+async def test_metric_uploads_off_event_loop_run_inline() -> None:
+    """Uploads from a thread without a running loop (streaming path) keep running inline."""
+    inner = _BlockingUploadPipeline()
+    adapter = _make_adapter(chat=_dummy_chat)
+    adapter._offload_sync_metric_uploads(MagicMock(_pipeline=inner))
+
+    thread = threading.Thread(target=inner.report_custom_metrics, args=("row",), name="stream")
+    thread.start()
+    thread.join()
+    adapter.shutdown()
+
+    assert inner.upload_threads == ["stream"]
 
 
 async def test_score_bypasses_pipeline_when_none() -> None:
