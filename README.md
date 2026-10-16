@@ -12,6 +12,7 @@ Existing DRUM `custom.py` files work without modification — sync hooks are run
 - Predict/score API (`/predict/`)
 - OpenTelemetry instrumentation built in
 - Deployment prediction stats (Total Predictions and errors) reported to DataRobot
+- Chat prompt/response rows reported to DataRobot for Data exploration (Data quality, Data export)
 - LLM safety guardrails via [datarobot-moderations](https://pypi.org/project/datarobot-moderations/)
 
 ### Not implemented
@@ -184,6 +185,18 @@ no header it assumes any 5xx went unreported and files a record of its own that
 carries one prediction, so a failed chat request would land twice in `Total
 Requests` and once in `Total Predictions`. The header is omitted when reporting is
 off, which keeps the gateway's coverage for deployments that report nothing.
+
+### Chat prediction data reporting
+
+Like DRUM, FastRAG also reports one prompt/response row per chat completion to
+`/api/v2/deployments/<id>/predictionInputs/fromJSON/`, using the same credentials.
+These rows back the deployment's Data exploration (Data quality, Data export) and
+join to custom metrics by association ID. The ID is the request's
+`datarobot_association_id` or a generated one, and is returned on the response
+and on every stream chunk. Rows are sent only while the deployment has prediction
+data collection or feature drift tracking enabled; FastRAG re-reads those settings
+and the prompt column name from the deployment every 60 seconds. Streamed
+responses are reported once the stream finishes; failed requests are not reported.
 
 Structured `/predict/` requests are deliberately **not** reported. Those go
 through DataRobot's prediction API, which counts the scored rows itself and feeds

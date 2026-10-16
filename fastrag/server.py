@@ -37,6 +37,9 @@ from .loader import HookName
 from .model_adapter import ModelAdapter
 from .model_metadata import ModelMetadata
 from .model_metadata import TargetType
+from .prediction_data import PredictionDataReporter
+from .prediction_data import chat_prompt_text
+from .prediction_data import start_data_reporter
 from .prediction_stats import PredictionStatsReporter
 from .prediction_stats import start_reporter
 from .schemas import CapabilitiesResponse
@@ -195,6 +198,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     prediction_stats: PredictionStatsReporter | None = await start_reporter()
     app.state.prediction_stats = prediction_stats
+    prediction_data: PredictionDataReporter | None = await start_data_reporter()
+    app.state.prediction_data = prediction_data
 
     try:
         yield
@@ -202,6 +207,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         model_adapter.shutdown()
         if prediction_stats is not None:
             await prediction_stats.aclose()
+        if prediction_data is not None:
+            await prediction_data.aclose()
         if otel_providers is not None:
             otel_providers.trace_provider.shutdown()
             otel_providers.metric_provider.shutdown()
@@ -318,7 +325,15 @@ async def chat_completions(
         detail="Chat completion failed.",
         log_message="Chat completion failed.",
     )
-    return _format_chat_response(response, request, association_id)
+    reporter: PredictionDataReporter | None = getattr(request.app.state, "prediction_data", None)
+    on_complete = None
+    if reporter is not None and reporter.enabled:
+        prompt = chat_prompt_text(completion_create_params)
+
+        def on_complete(response_text: str | None) -> None:
+            reporter.report(prompt=prompt, response=response_text, association_id=association_id)
+
+    return _format_chat_response(response, request, association_id, on_complete)
 
 
 @router.post("/predictUnstructured/")
@@ -405,23 +420,51 @@ async def get_supported_llm_models(
 
 
 def _format_chat_response(
-    response: Any, request: Request | None = None, association_id: str | None = None
+    response: Any,
+    request: Request | None = None,
+    association_id: str | None = None,
+    on_complete: Callable[[str | None], None] | None = None,
 ) -> Any:
+    """Serialize a chat response; ``on_complete`` gets the response text once it is all sent."""
+
     def mark_stream_failed() -> None:
         if request is not None:
             request.scope.setdefault("state", {})[STREAM_FAILED_STATE_KEY] = True
 
     if _is_async_streaming_response(response):
         return StreamingResponse(
-            _astream_openai_chunks(response, mark_stream_failed, association_id),
+            _astream_openai_chunks(response, mark_stream_failed, association_id, on_complete),
             media_type="text/event-stream",
         )
     if _is_streaming_response(response):
         return StreamingResponse(
-            _stream_openai_chunks(response, mark_stream_failed, association_id),
+            _stream_openai_chunks(response, mark_stream_failed, association_id, on_complete),
             media_type="text/event-stream",
         )
-    return _with_association_id(_to_jsonable(response), association_id)
+    payload = _with_association_id(_to_jsonable(response), association_id)
+    if on_complete is not None:
+        on_complete(_completion_text(payload))
+    return payload
+
+
+def _completion_text(payload: Any) -> str | None:
+    try:
+        content = payload["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError):
+        return None
+    return content if isinstance(content, str) else None
+
+
+def _chunk_text(chunk: Any) -> str | None:
+    if isinstance(chunk, dict):
+        choices = chunk.get("choices") or []
+        delta = choices[0].get("delta") if choices and isinstance(choices[0], dict) else None
+        content = delta.get("content") if isinstance(delta, dict) else None
+    else:
+        choices = getattr(chunk, "choices", None) or []
+        delta = getattr(choices[0], "delta", None) if choices else None
+        content = getattr(delta, "content", None)
+    return content if isinstance(content, str) else None
 
 
 def _with_association_id(payload: Any, association_id: str | None) -> Any:
@@ -466,15 +509,22 @@ def _stream_openai_chunks(
     stream: Iterable[Any],
     on_error: Callable[[], None] | None = None,
     association_id: str | None = None,
+    on_complete: Callable[[str | None], None] | None = None,
 ) -> Iterator[str]:
+    parts: list[str] = []
     try:
         for chunk in stream:
+            if on_complete is not None and (text := _chunk_text(chunk)):
+                parts.append(text)
             yield from _format_chunk_as_sse_lines(chunk, association_id)
     except Exception:
         logger.exception("Chat completion stream failed mid-stream.")
         if on_error is not None:
             on_error()
         yield _stream_error_event()
+    else:
+        if on_complete is not None:
+            on_complete("".join(parts))
 
     yield "data: [DONE]\n\n"
 
@@ -483,9 +533,13 @@ async def _astream_openai_chunks(
     stream: AsyncIterable[Any],
     on_error: Callable[[], None] | None = None,
     association_id: str | None = None,
+    on_complete: Callable[[str | None], None] | None = None,
 ) -> AsyncIterator[str]:
+    parts: list[str] = []
     try:
         async for chunk in stream:
+            if on_complete is not None and (text := _chunk_text(chunk)):
+                parts.append(text)
             for line in _format_chunk_as_sse_lines(chunk, association_id):
                 yield line
     except Exception:
@@ -493,6 +547,9 @@ async def _astream_openai_chunks(
         if on_error is not None:
             on_error()
         yield _stream_error_event()
+    else:
+        if on_complete is not None:
+            on_complete("".join(parts))
 
     yield "data: [DONE]\n\n"
 
