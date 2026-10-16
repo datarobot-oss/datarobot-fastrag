@@ -9,6 +9,12 @@ All notable changes to `datarobot-fastrag` are recorded here. The format follows
 
 <!-- version list -->
 
+## v0.2.10 (2026-10-16)
+
+- Fixed issue where non-streaming chat with a moderation pipeline failed with "Cannot run the event loop while another loop is running" by moving the moderation library's custom metric uploads outside event loop.
+- moderation pipeline now receives datarobot_association_id (from the request or generated if not provided)
+- Reported each chat's prompt/response row with its association ID to DataRobot (`predictionInputs/fromJSON`), this fixes Data exploration's Data quality and Data export features
+
 ## v0.2.9 (2026-10-09)
 
 - Fixed chat streams that fail mid-response by ending them with a generic `server_error` SSE event and `data: [DONE]`, and reported them to MLOps monitoring stats as system errors instead of successes

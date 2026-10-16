@@ -6,6 +6,9 @@ import os
 import time
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Any
+from typing import Generic
+from typing import TypeVar
 
 import httpx
 
@@ -103,22 +106,44 @@ class StatsConfig:
         )
 
 
-class PredictionStatsReporter:
-    """Queue records on the request path; drain and POST them from a background task."""
+R = TypeVar("R")
+
+
+def _running_loop() -> asyncio.AbstractEventLoop | None:
+    try:
+        return asyncio.get_running_loop()
+    except RuntimeError:
+        return None
+
+
+class BatchReporter(Generic[R]):
+    """Queue records on the request path; drain and POST them in batches from a background task.
+
+    Subclasses give the URL, how a batch becomes a payload, and a name for log messages.
+    """
+
+    name = "records"
 
     def __init__(self, config: StatsConfig, client: httpx.AsyncClient | None = None) -> None:
         self._config = config
         self._client = client
         self._owns_client = client is None
-        self._queue: asyncio.Queue[StatsRecord | None] = asyncio.Queue(
-            maxsize=config.queue_max_size
-        )
+        self._queue: asyncio.Queue[R | None] = asyncio.Queue(maxsize=config.queue_max_size)
         self._task: asyncio.Task[None] | None = None
+        self._loop: asyncio.AbstractEventLoop | None = None
         self.dropped = 0
         self._posted = 0
         self._closed = False
 
+    @property
+    def url(self) -> str:
+        raise NotImplementedError
+
+    def _payload(self, batch: list[R]) -> dict[str, Any]:
+        raise NotImplementedError
+
     async def start(self) -> None:
+        self._loop = asyncio.get_running_loop()
         if self._client is None:
             self._client = httpx.AsyncClient(
                 timeout=self._config.timeout_s,
@@ -127,33 +152,27 @@ class PredictionStatsReporter:
                     "Content-Type": "application/json",
                 },
             )
-        self._task = asyncio.create_task(self._run(), name="prediction-stats-drain")
-        logger.info("Reporting prediction stats to %s", self._config.url)
+        self._task = asyncio.create_task(self._run(), name=f"{self.name}-drain".replace(" ", "-"))
+        logger.info("Reporting %s to %s", self.name, self.url)
 
-    def report(
-        self,
-        *,
-        num_predictions: int,
-        execution_time_ms: float,
-        user_error: bool = False,
-        system_error: bool = False,
-    ) -> None:
+    def _put(self, record: R) -> None:
         if self._closed:
             return
-        record = StatsRecord(
-            epoch_s=time.time(),
-            num_predictions=num_predictions,
-            execution_time_ms=execution_time_ms,
-            user_error=user_error,
-            system_error=system_error,
-        )
+        # asyncio.Queue is not thread-safe; e.g. sync streaming responses finish in a worker thread.
+        if self._loop is not None and _running_loop() is not self._loop:
+            self._loop.call_soon_threadsafe(self._put_nowait, record)
+        else:
+            self._put_nowait(record)
+
+    def _put_nowait(self, record: R) -> None:
         try:
             self._queue.put_nowait(record)
         except asyncio.QueueFull:
             self.dropped += 1
             if self.dropped % 100 == 1:
                 logger.warning(
-                    "Prediction stats queue is full; discarded %d record(s) so far.",
+                    "%s queue is full; discarded %d record(s) so far.",
+                    self.name.capitalize(),
                     self.dropped,
                 )
 
@@ -182,8 +201,8 @@ class PredictionStatsReporter:
                 await asyncio.wait_for(self._task, timeout=timeout_s)
             except (TimeoutError, asyncio.CancelledError):
                 logger.warning(
-                    "Prediction stats queue did not finish draining within %ss; "
-                    "remaining records are discarded.",
+                    "%s queue did not finish draining within %ss; remaining records are discarded.",
+                    self.name.capitalize(),
                     timeout_s,
                 )
         if self._owns_client and self._client is not None:
@@ -200,9 +219,9 @@ class PredictionStatsReporter:
             except asyncio.CancelledError:
                 raise
             except Exception:
-                logger.exception("Prediction stats drain failed; continuing.")
+                logger.exception("%s drain failed; continuing.", self.name.capitalize())
 
-    async def _collect_batch(self) -> tuple[list[StatsRecord], bool]:
+    async def _collect_batch(self) -> tuple[list[R], bool]:
         first = await self._queue.get()
         if first is None:
             return [], True
@@ -222,17 +241,17 @@ class PredictionStatsReporter:
             batch.append(record)
         return batch, False
 
-    async def _post(self, batch: list[StatsRecord]) -> None:
+    async def _post(self, batch: list[R]) -> None:
         assert self._client is not None
-        payload = {"data": [record.to_payload(self._config.model_id) for record in batch]}
+        payload = self._payload(batch)
 
         for attempt in range(self._config.max_attempts):
             last_attempt = attempt + 1 == self._config.max_attempts
             try:
-                response = await self._client.post(self._config.url, json=payload)
+                response = await self._client.post(self.url, json=payload)
             except httpx.HTTPError as exc:
                 if last_attempt:
-                    logger.warning("Discarding %d prediction stats record(s): %s", len(batch), exc)
+                    logger.warning("Discarding %d %s record(s): %s", len(batch), self.name, exc)
                     return
                 await asyncio.sleep(self._config.retry_backoff_s * 2**attempt)
                 continue
@@ -240,23 +259,54 @@ class PredictionStatsReporter:
             if response.status_code in SUCCESS_STATUS_CODES:
                 if self._posted == 0:
                     logger.info(
-                        "Prediction stats accepted by DataRobot (first %d record(s)).",
+                        "%s accepted by DataRobot (first %d record(s)).",
+                        self.name.capitalize(),
                         len(batch),
                     )
                 self._posted += len(batch)
-                logger.debug("Reported %d prediction stats record(s).", len(batch))
+                logger.debug("Reported %d %s record(s).", len(batch), self.name)
                 return
             if response.status_code in RETRY_STATUS_CODES and not last_attempt:
                 await asyncio.sleep(self._config.retry_backoff_s * 2**attempt)
                 continue
 
             logger.warning(
-                "Discarding %d prediction stats record(s): HTTP %s %s",
+                "Discarding %d %s record(s): HTTP %s %s",
                 len(batch),
+                self.name,
                 response.status_code,
                 response.text[:300],
             )
             return
+
+
+class PredictionStatsReporter(BatchReporter[StatsRecord]):
+    name = "prediction stats"
+
+    @property
+    def url(self) -> str:
+        return self._config.url
+
+    def _payload(self, batch: list[StatsRecord]) -> dict[str, Any]:
+        return {"data": [record.to_payload(self._config.model_id) for record in batch]}
+
+    def report(
+        self,
+        *,
+        num_predictions: int,
+        execution_time_ms: float,
+        user_error: bool = False,
+        system_error: bool = False,
+    ) -> None:
+        self._put(
+            StatsRecord(
+                epoch_s=time.time(),
+                num_predictions=num_predictions,
+                execution_time_ms=execution_time_ms,
+                user_error=user_error,
+                system_error=system_error,
+            )
+        )
 
 
 async def start_reporter() -> PredictionStatsReporter | None:

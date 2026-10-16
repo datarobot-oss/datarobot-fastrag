@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import time
+import uuid
 from collections.abc import AsyncIterable
 from collections.abc import AsyncIterator
 from collections.abc import Awaitable
@@ -36,6 +37,9 @@ from .loader import HookName
 from .model_adapter import ModelAdapter
 from .model_metadata import ModelMetadata
 from .model_metadata import TargetType
+from .prediction_data import PredictionDataReporter
+from .prediction_data import chat_prompt_text
+from .prediction_data import start_data_reporter
 from .prediction_stats import PredictionStatsReporter
 from .prediction_stats import start_reporter
 from .schemas import CapabilitiesResponse
@@ -83,6 +87,7 @@ DRUM_VERSION = os.environ.get("FASTRAG_DRUM_VERSION", "1.17.12")
 DRUM_VERSION_HEADER_NAME = b"x-drum-version"
 STREAM_FAILED_STATE_KEY = "fastrag_stream_failed"
 STREAM_ERROR_MESSAGE = "Chat completion stream failed."
+DATAROBOT_ASSOCIATION_ID_KEY = "datarobot_association_id"
 
 
 class TracedRoute(APIRoute):
@@ -193,6 +198,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     prediction_stats: PredictionStatsReporter | None = await start_reporter()
     app.state.prediction_stats = prediction_stats
+    prediction_data: PredictionDataReporter | None = await start_data_reporter()
+    app.state.prediction_data = prediction_data
 
     try:
         yield
@@ -200,6 +207,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         model_adapter.shutdown()
         if prediction_stats is not None:
             await prediction_stats.aclose()
+        if prediction_data is not None:
+            await prediction_data.aclose()
         if otel_providers is not None:
             otel_providers.trace_provider.shutdown()
             otel_providers.metric_provider.shutdown()
@@ -308,12 +317,23 @@ async def chat_completions(
     # Headers are case-insensitive
     kwargs = {"target_type": target_type, "headers": request.headers}
 
+    completion_create_params = body.model_dump(exclude_none=True)
+    association_id = str(completion_create_params.get(DATAROBOT_ASSOCIATION_ID_KEY) or uuid.uuid4())
+
     response = await _await_or_api_error(
-        model_adapter.chat(body.model_dump(exclude_none=True), **kwargs),
+        model_adapter.chat(completion_create_params, association_id=association_id, **kwargs),
         detail="Chat completion failed.",
         log_message="Chat completion failed.",
     )
-    return _format_chat_response(response, request)
+    reporter: PredictionDataReporter | None = getattr(request.app.state, "prediction_data", None)
+    on_complete = None
+    if reporter is not None:
+        prompt = chat_prompt_text(completion_create_params)
+
+        def on_complete(response_text: str | None) -> None:
+            reporter.report(prompt=prompt, response=response_text, association_id=association_id)
+
+    return _format_chat_response(response, request, association_id, on_complete)
 
 
 @router.post("/predictUnstructured/")
@@ -399,22 +419,47 @@ async def get_supported_llm_models(
     )
 
 
-def _format_chat_response(response: Any, request: Request | None = None) -> Any:
+def _format_chat_response(
+    response: Any,
+    request: Request | None = None,
+    association_id: str | None = None,
+    on_complete: Callable[[str | None], None] | None = None,
+) -> Any:
+    """Serialize a chat response; ``on_complete`` gets the response text once it is all sent."""
+
     def mark_stream_failed() -> None:
         if request is not None:
             request.scope.setdefault("state", {})[STREAM_FAILED_STATE_KEY] = True
 
     if _is_async_streaming_response(response):
         return StreamingResponse(
-            _astream_openai_chunks(response, mark_stream_failed),
+            _astream_openai_chunks(response, mark_stream_failed, association_id, on_complete),
             media_type="text/event-stream",
         )
     if _is_streaming_response(response):
         return StreamingResponse(
-            _stream_openai_chunks(response, mark_stream_failed),
+            _stream_openai_chunks(response, mark_stream_failed, association_id, on_complete),
             media_type="text/event-stream",
         )
-    return _to_jsonable(response)
+    payload = _with_association_id(_to_jsonable(response), association_id)
+    if on_complete is not None:
+        on_complete(_choice_text(payload, "message"))
+    return payload
+
+
+def _choice_text(payload: Any, key: str) -> str | None:
+    """Return ``choices[0][key]["content"]`` of a serialized response or chunk, if it is text."""
+    try:
+        content = payload["choices"][0][key]["content"]
+    except (KeyError, IndexError, TypeError):
+        return None
+    return content if isinstance(content, str) else None
+
+
+def _with_association_id(payload: Any, association_id: str | None) -> Any:
+    if association_id is not None and isinstance(payload, dict):
+        return {**payload, DATAROBOT_ASSOCIATION_ID_KEY: association_id}
+    return payload
 
 
 def _is_non_streaming(response: Any) -> bool:
@@ -450,41 +495,63 @@ def _stream_error_event() -> str:
 
 
 def _stream_openai_chunks(
-    stream: Iterable[Any], on_error: Callable[[], None] | None = None
+    stream: Iterable[Any],
+    on_error: Callable[[], None] | None = None,
+    association_id: str | None = None,
+    on_complete: Callable[[str | None], None] | None = None,
 ) -> Iterator[str]:
+    parts: list[str] = []
     try:
         for chunk in stream:
-            yield from _format_chunk_as_sse_lines(chunk)
+            payload = _chunk_payload(chunk, association_id)
+            if on_complete is not None and (text := _choice_text(payload, "delta")):
+                parts.append(text)
+            yield from _format_chunk_as_sse_lines(payload)
     except Exception:
         logger.exception("Chat completion stream failed mid-stream.")
         if on_error is not None:
             on_error()
         yield _stream_error_event()
+    else:
+        if on_complete is not None:
+            on_complete("".join(parts))
 
     yield "data: [DONE]\n\n"
 
 
 async def _astream_openai_chunks(
-    stream: AsyncIterable[Any], on_error: Callable[[], None] | None = None
+    stream: AsyncIterable[Any],
+    on_error: Callable[[], None] | None = None,
+    association_id: str | None = None,
+    on_complete: Callable[[str | None], None] | None = None,
 ) -> AsyncIterator[str]:
+    parts: list[str] = []
     try:
         async for chunk in stream:
-            for line in _format_chunk_as_sse_lines(chunk):
+            payload = _chunk_payload(chunk, association_id)
+            if on_complete is not None and (text := _choice_text(payload, "delta")):
+                parts.append(text)
+            for line in _format_chunk_as_sse_lines(payload):
                 yield line
     except Exception:
         logger.exception("Chat completion stream failed mid-stream.")
         if on_error is not None:
             on_error()
         yield _stream_error_event()
+    else:
+        if on_complete is not None:
+            on_complete("".join(parts))
 
     yield "data: [DONE]\n\n"
 
 
-def _format_chunk_as_sse_lines(chunk: Any) -> list[str]:
-    if hasattr(chunk, "to_json"):
-        chunk_json = chunk.to_json(indent=None)
-    else:
-        chunk_json = json.dumps(_to_jsonable(chunk))
+def _chunk_payload(chunk: Any, association_id: str | None) -> Any:
+    payload = chunk.to_dict(mode="json") if hasattr(chunk, "to_dict") else _to_jsonable(chunk)
+    return _with_association_id(payload, association_id)
+
+
+def _format_chunk_as_sse_lines(payload: Any) -> list[str]:
+    chunk_json = json.dumps(payload)
     lines = [f"data: {line}\n" for line in chunk_json.splitlines()]
     lines.append("\n")
     return lines
