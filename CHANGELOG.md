@@ -13,7 +13,7 @@ All notable changes to `datarobot-fastrag` are recorded here. The format follows
 
 - Fixed issue where non-streaming chat with a moderation pipeline failed with "Cannot run the event loop while another loop is running" by moving the moderation library's custom metric uploads outside event loop.
 - moderation pipeline now receives datarobot_association_id (from the request or generated if not provided)
-- Reported each chat's prompt/response row with its association ID to DataRobot (`predictionInputs/fromJSON`), as DRUM does, so Data exploration's Data quality and Data export are populated
+- Reported each chat's prompt/response row with its association ID to DataRobot (`predictionInputs/fromJSON`), this fixes Data exploration's Data quality and Data export features
 
 ## v0.2.9 (2026-10-09)
 

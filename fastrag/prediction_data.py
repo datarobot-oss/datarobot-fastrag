@@ -1,10 +1,4 @@
-"""Non-blocking reporter for chat prompt/response rows (DataRobot "prediction data").
-
-DRUM reports one row per chat through ``datarobot-mlops`` ``report_predictions_data``; these
-rows back the deployment's Data exploration (Data quality, Data export) and join to custom
-metrics by association ID. This posts the same payload to the same endpoint directly. Whether
-rows are kept is decided by DataRobot from the deployment's prediction row storage setting.
-"""
+"""Non-blocking reporter for chat prompt/response rows (DataRobot "prediction data")."""
 
 import logging
 import time
@@ -20,7 +14,6 @@ from .prediction_stats import dr_timestamp
 
 logger = logging.getLogger("fastrag.prediction_data")
 
-# DRUM's fallback when the deployment does not name its prompt column.
 DEFAULT_PROMPT_COLUMN_NAME = "promptText"
 
 
@@ -33,7 +26,6 @@ class ChatRow:
 
 
 def chat_prompt_text(completion_create_params: dict[str, Any]) -> str | None:
-    """Return the latest message's text, flattening content parts the way DRUM does."""
     messages = completion_create_params.get("messages") or []
     content = messages[-1].get("content") if messages else None
     if not isinstance(content, list):
@@ -64,7 +56,6 @@ class PredictionDataReporter(BatchReporter[ChatRow]):
 
     async def start(self) -> None:
         await super().start()
-        # Rows must name the deployment's prompt column, like the moderation library and DRUM.
         assert self._client is not None
         try:
             response = await self._client.get(f"{self._base}/")
