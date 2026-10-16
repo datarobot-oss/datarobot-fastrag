@@ -53,7 +53,7 @@ def _chat_hook_kwargs(chat_hook: HookCallable, kwargs: Dict[str, Any]) -> Dict[s
     return accepted_kwargs
 
 
-def _log_failed_metrics_upload(future: "Future[Any]") -> None:
+def _log_failed_custom_metrics_upload(future: "Future[Any]") -> None:
     if (exc := future.exception()) is not None:
         logger.error("Moderation custom metrics upload failed.", exc_info=exc)
 
@@ -99,26 +99,21 @@ class ModelAdapter(ABC):
         return pipeline
 
     def _offload_sync_metric_uploads(self, mod_pipeline: Any) -> None:
-        """Run the moderation library's blocking metric uploads on one worker thread.
-
-        The library uploads custom metrics with ``run_until_complete`` on one shared event loop.
-        Its non-streaming ``async_chat`` path calls that on fastrag's event loop thread, which
-        raises "Cannot run the event loop while another loop is running", and its streaming path
-        calls it from a new thread per stream, so concurrent requests can run the shared loop
-        twice at once. Every upload is handed to a single worker thread instead, so uploads never
-        block the event loop and never overlap.
+        """
+        Offload blocking moderation metric uploads to a single worker thread
+        to avoid blocking or overlapping the event loop.
         """
         inner: Any = getattr(mod_pipeline, "_pipeline", None)
         upload = getattr(inner, "upload_custom_metrics", None)
         if upload is None:
-            logger.warning("Moderation pipeline has no upload_custom_metrics; leaving it as is.")
+            logger.warning("Moderation pipeline has no upload_custom_metrics; skipping.")
             return
 
         executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="fastrag-metrics")
         self._metrics_upload_executor = executor
 
         def upload_custom_metrics(payload: Any) -> None:
-            executor.submit(upload, payload).add_done_callback(_log_failed_metrics_upload)
+            executor.submit(upload, payload).add_done_callback(_log_failed_custom_metrics_upload)
 
         inner.upload_custom_metrics = upload_custom_metrics
 

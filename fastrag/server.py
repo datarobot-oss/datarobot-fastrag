@@ -84,7 +84,6 @@ DRUM_VERSION = os.environ.get("FASTRAG_DRUM_VERSION", "1.17.12")
 DRUM_VERSION_HEADER_NAME = b"x-drum-version"
 STREAM_FAILED_STATE_KEY = "fastrag_stream_failed"
 STREAM_ERROR_MESSAGE = "Chat completion stream failed."
-# Same field DRUM reads from the request and writes on every chat response and stream chunk.
 DATAROBOT_ASSOCIATION_ID_KEY = "datarobot_association_id"
 
 
@@ -312,8 +311,6 @@ async def chat_completions(
     kwargs = {"target_type": target_type, "headers": request.headers}
 
     completion_create_params = body.model_dump(exclude_none=True)
-    # As in DRUM: use the caller's association ID or generate one, so moderation custom metrics
-    # can be recorded per request and the caller can match its own metrics to the request.
     association_id = str(completion_create_params.get(DATAROBOT_ASSOCIATION_ID_KEY) or uuid.uuid4())
 
     response = await _await_or_api_error(
