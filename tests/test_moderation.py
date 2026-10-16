@@ -116,14 +116,14 @@ async def test_chat_calls_mod_pipeline_when_present() -> None:
 
 
 class _BlockingUploadPipeline:
-    """Mimics datarobot_dome: uploads metrics with a blocking ``run_until_complete``."""
+    """Mimics datarobot_dome: uploads metrics with ``run_until_complete`` on one shared loop."""
 
     def __init__(self) -> None:
         self.upload_threads: list[str] = []
         self._loop = asyncio.new_event_loop()
 
     def upload_custom_metrics(self, payload: Any) -> None:
-        self._loop.run_until_complete(asyncio.sleep(0))
+        self._loop.run_until_complete(asyncio.sleep(0.01))
         self.upload_threads.append(threading.current_thread().name)
 
     def report_custom_metrics(self, result_df: Any) -> None:
@@ -144,18 +144,28 @@ async def test_metric_uploads_from_event_loop_run_off_loop() -> None:
     assert inner.upload_threads[0].startswith("fastrag-metrics")
 
 
-async def test_metric_uploads_off_event_loop_run_inline() -> None:
-    """Uploads from a thread without a running loop (streaming path) keep running inline."""
+async def test_concurrent_metric_uploads_do_not_overlap(caplog: pytest.LogCaptureFixture) -> None:
+    """Streaming-thread and event-loop uploads share one loop, so they must not overlap."""
     inner = _BlockingUploadPipeline()
     adapter = _make_adapter(chat=_dummy_chat)
     adapter._offload_sync_metric_uploads(MagicMock(_pipeline=inner))
 
-    thread = threading.Thread(target=inner.report_custom_metrics, args=("row",), name="stream")
-    thread.start()
-    thread.join()
+    # Streaming uploads come from their own threads; the event loop adds a non-streaming one.
+    threads = [
+        threading.Thread(target=inner.report_custom_metrics, args=("row",), name=f"stream-{i}")
+        for i in range(5)
+    ]
+    for thread in threads:
+        thread.start()
+    inner.report_custom_metrics("row")
+    for thread in threads:
+        thread.join()
     adapter.shutdown()
 
-    assert inner.upload_threads == ["stream"]
+    # Overlapping run_until_complete calls on one loop raise "This event loop is already running".
+    assert "Moderation custom metrics upload failed." not in caplog.text
+    assert len(inner.upload_threads) == 6
+    assert all(name.startswith("fastrag-metrics") for name in inner.upload_threads)
 
 
 async def test_score_bypasses_pipeline_when_none() -> None:

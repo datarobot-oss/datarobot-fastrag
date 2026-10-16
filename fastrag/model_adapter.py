@@ -99,13 +99,14 @@ class ModelAdapter(ABC):
         return pipeline
 
     def _offload_sync_metric_uploads(self, mod_pipeline: Any) -> None:
-        """Keep the moderation library's blocking metric uploads off the event loop.
+        """Run the moderation library's blocking metric uploads on one worker thread.
 
-        The library uploads custom metrics with ``loop.run_until_complete``. Its streaming path
-        already does that from a background thread, but the non-streaming ``async_chat`` path
-        calls it on the event loop thread, which raises "Cannot run the event loop while another
-        loop is running". Uploads made from the event loop are handed to a single worker thread
-        instead, so they run one at a time on the library's own loop.
+        The library uploads custom metrics with ``run_until_complete`` on one shared event loop.
+        Its non-streaming ``async_chat`` path calls that on fastrag's event loop thread, which
+        raises "Cannot run the event loop while another loop is running", and its streaming path
+        calls it from a new thread per stream, so concurrent requests can run the shared loop
+        twice at once. Every upload is handed to a single worker thread instead, so uploads never
+        block the event loop and never overlap.
         """
         inner: Any = getattr(mod_pipeline, "_pipeline", None)
         upload = getattr(inner, "upload_custom_metrics", None)
@@ -117,11 +118,6 @@ class ModelAdapter(ABC):
         self._metrics_upload_executor = executor
 
         def upload_custom_metrics(payload: Any) -> None:
-            try:
-                asyncio.get_running_loop()
-            except RuntimeError:
-                upload(payload)
-                return
             executor.submit(upload, payload).add_done_callback(_log_failed_metrics_upload)
 
         inner.upload_custom_metrics = upload_custom_metrics
