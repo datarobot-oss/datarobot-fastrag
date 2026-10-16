@@ -425,8 +425,10 @@ def _format_chat_response(
 
 
 def _with_association_id(payload: Any, association_id: str | None) -> Any:
+    # Overwrite like DRUM: a hook proxying another deployment can return that deployment's ID,
+    # which would not match the one this deployment's moderation pipeline recorded.
     if association_id is not None and isinstance(payload, dict):
-        payload.setdefault(DATAROBOT_ASSOCIATION_ID_KEY, association_id)
+        return {**payload, DATAROBOT_ASSOCIATION_ID_KEY: association_id}
     return payload
 
 

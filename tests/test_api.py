@@ -318,3 +318,54 @@ def test_chat_openai_stream_chunks_carry_association_id(client):
     assert len(payloads) == 1
     assert payloads[0]["choices"][0]["delta"] == {"content": "hi"}
     assert len(payloads[0]["datarobot_association_id"]) == 36
+
+
+def test_chat_overwrites_upstream_association_id(client):
+    hook_response = {
+        "id": "x",
+        "object": "chat.completion",
+        "created": 0,
+        "model": "m",
+        "choices": [
+            {"index": 0, "finish_reason": "stop", "message": {"role": "assistant", "content": "ok"}}
+        ],
+        "datarobot_association_id": "upstream-id",
+    }
+
+    async def fake_chat(payload, **kwargs):
+        return hook_response
+
+    client.app.state.model_adapter.chat = fake_chat
+    response = client.post(
+        "/chat/completions",
+        json={"model": "m", "messages": [], "datarobot_association_id": "caller-id"},
+    )
+    assert response.status_code == 200
+    assert response.json()["datarobot_association_id"] == "caller-id"
+    assert hook_response["datarobot_association_id"] == "upstream-id"
+
+
+def test_chat_stream_overwrites_upstream_association_id(client):
+    async def fake_chat(payload, **kwargs):
+        async def gen():
+            yield {
+                "object": "chat.completion.chunk",
+                "choices": [{"delta": {"content": "hi"}}],
+                "datarobot_association_id": "upstream-id",
+            }
+
+        return gen()
+
+    client.app.state.model_adapter.chat = fake_chat
+    with client.stream(
+        "POST",
+        "/chat/completions",
+        json={
+            "model": "m",
+            "messages": [],
+            "stream": True,
+            "datarobot_association_id": "caller-id",
+        },
+    ) as response:
+        payloads = _sse_payloads("".join(response.iter_text()))
+    assert [p["datarobot_association_id"] for p in payloads] == ["caller-id"]
