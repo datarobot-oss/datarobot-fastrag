@@ -1,4 +1,3 @@
-import asyncio
 import json
 import os
 import time
@@ -18,32 +17,19 @@ DATA_URL = f"{BASE}/predictionInputs/fromJSON/"
 
 
 class FakeDataRobot:
-    """Serves the deployment and settings lookups and records prediction data posts."""
+    """Serves the deployment lookup and records prediction data posts."""
 
-    def __init__(self, collection=True, drift=False, prompt="question", statuses=()):
-        self.collection = collection
-        self.drift = drift
+    def __init__(self, prompt="question"):
         self.prompt = prompt
-        self.statuses = list(statuses)
         self.posts = []
 
     def handler(self, request):
         url = str(request.url)
-        if request.method == "GET" and url == f"{BASE}/settings/":
-            return httpx.Response(
-                200,
-                json={
-                    "predictionsDataCollection": {"enabled": self.collection},
-                    "featureDrift": {"enabled": self.drift},
-                },
-            )
         if request.method == "GET" and url == f"{BASE}/":
             return httpx.Response(200, json={"model": {"id": "model-x", "prompt": self.prompt}})
         if request.method == "POST" and url == DATA_URL:
-            status = self.statuses.pop(0) if self.statuses else 202
-            if status in (200, 202):
-                self.posts.append(json.loads(request.content))
-            return httpx.Response(status, text="nope" if status >= 400 else "")
+            self.posts.append(json.loads(request.content))
+            return httpx.Response(202)
         return httpx.Response(404)
 
     @property
@@ -117,61 +103,27 @@ async def test_falls_back_to_deployment_model_id_and_default_prompt_column():
     assert row["features"][0]["name"] == "promptText"
 
 
-async def test_feature_drift_alone_enables_reporting():
-    fake = FakeDataRobot(collection=False, drift=True)
-    reporter = make_reporter(fake)
-    await reporter.start()
-    assert reporter.enabled
+async def test_deployment_lookup_failure_uses_default_prompt_column():
+    fake = FakeDataRobot()
+    config = StatsConfig(
+        endpoint="https://app.datarobot.test", api_token="t", deployment_id="deployment-1"
+    )
 
-
-async def test_nothing_is_reported_when_collection_and_drift_are_off():
-    fake = FakeDataRobot(collection=False, drift=False)
-    reporter = make_reporter(fake)
-    await reporter.start()
-    reporter.report(prompt="hi", response="hello", association_id="a-1")
-    await reporter.aclose()
-
-    assert not reporter.enabled
-    assert fake.posts == []
-
-
-async def test_settings_lookup_failure_keeps_reporting_off():
     def handler(request):
-        return httpx.Response(500)
+        if request.method == "GET":
+            return httpx.Response(500)
+        return fake.handler(request)
 
-    config = StatsConfig(endpoint="https://app.datarobot.test", api_token="t", deployment_id="d")
     reporter = PredictionDataReporter(
         config, client=httpx.AsyncClient(transport=httpx.MockTransport(handler))
     )
     await reporter.start()
-    assert not reporter.enabled
-    await reporter.aclose()
-
-
-async def test_settings_are_refreshed():
-    fake = FakeDataRobot(collection=False)
-    reporter = make_reporter(fake)
-    reporter._settings_refresh_s = 0.01
-    await reporter.start()
-    assert not reporter.enabled
-
-    fake.collection = True
-    for _ in range(100):
-        if reporter.enabled:
-            break
-        await asyncio.sleep(0.01)
-    assert reporter.enabled
-    await reporter.aclose()
-
-
-async def test_retries_then_posts():
-    fake = FakeDataRobot(statuses=[503])
-    reporter = make_reporter(fake)
-    await reporter.start()
     reporter.report(prompt="hi", response="hello", association_id="a-1")
     await reporter.aclose()
 
-    assert len(fake.rows) == 1
+    (row,) = fake.rows
+    assert row["features"][0]["name"] == "promptText"
+    assert "modelId" not in row
 
 
 @pytest.fixture

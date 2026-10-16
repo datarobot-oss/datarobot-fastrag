@@ -193,10 +193,10 @@ Like DRUM, FastRAG also reports one prompt/response row per chat completion to
 These rows back the deployment's Data exploration (Data quality, Data export) and
 join to custom metrics by association ID. The ID is the request's
 `datarobot_association_id` or a generated one, and is returned on the response
-and on every stream chunk. Rows are sent only while the deployment has prediction
-data collection or feature drift tracking enabled; FastRAG re-reads those settings
-and the prompt column name from the deployment every 60 seconds. Streamed
-responses are reported once the stream finishes; failed requests are not reported.
+and on every stream chunk. The prompt column name is read from the deployment at
+startup, and DataRobot keeps the rows only while the deployment's prediction row
+storage is enabled. Streamed responses are reported once the stream finishes;
+failed requests are not reported.
 
 Structured `/predict/` requests are deliberately **not** reported. Those go
 through DataRobot's prediction API, which counts the scored rows itself and feeds

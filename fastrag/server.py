@@ -327,7 +327,7 @@ async def chat_completions(
     )
     reporter: PredictionDataReporter | None = getattr(request.app.state, "prediction_data", None)
     on_complete = None
-    if reporter is not None and reporter.enabled:
+    if reporter is not None:
         prompt = chat_prompt_text(completion_create_params)
 
         def on_complete(response_text: str | None) -> None:
@@ -443,27 +443,16 @@ def _format_chat_response(
         )
     payload = _with_association_id(_to_jsonable(response), association_id)
     if on_complete is not None:
-        on_complete(_completion_text(payload))
+        on_complete(_choice_text(payload, "message"))
     return payload
 
 
-def _completion_text(payload: Any) -> str | None:
+def _choice_text(payload: Any, key: str) -> str | None:
+    """Return ``choices[0][key]["content"]`` of a serialized response or chunk, if it is text."""
     try:
-        content = payload["choices"][0]["message"]["content"]
+        content = payload["choices"][0][key]["content"]
     except (KeyError, IndexError, TypeError):
         return None
-    return content if isinstance(content, str) else None
-
-
-def _chunk_text(chunk: Any) -> str | None:
-    if isinstance(chunk, dict):
-        choices = chunk.get("choices") or []
-        delta = choices[0].get("delta") if choices and isinstance(choices[0], dict) else None
-        content = delta.get("content") if isinstance(delta, dict) else None
-    else:
-        choices = getattr(chunk, "choices", None) or []
-        delta = getattr(choices[0], "delta", None) if choices else None
-        content = getattr(delta, "content", None)
     return content if isinstance(content, str) else None
 
 
@@ -514,9 +503,10 @@ def _stream_openai_chunks(
     parts: list[str] = []
     try:
         for chunk in stream:
-            if on_complete is not None and (text := _chunk_text(chunk)):
+            payload = _chunk_payload(chunk, association_id)
+            if on_complete is not None and (text := _choice_text(payload, "delta")):
                 parts.append(text)
-            yield from _format_chunk_as_sse_lines(chunk, association_id)
+            yield from _format_chunk_as_sse_lines(payload)
     except Exception:
         logger.exception("Chat completion stream failed mid-stream.")
         if on_error is not None:
@@ -538,9 +528,10 @@ async def _astream_openai_chunks(
     parts: list[str] = []
     try:
         async for chunk in stream:
-            if on_complete is not None and (text := _chunk_text(chunk)):
+            payload = _chunk_payload(chunk, association_id)
+            if on_complete is not None and (text := _choice_text(payload, "delta")):
                 parts.append(text)
-            for line in _format_chunk_as_sse_lines(chunk, association_id):
+            for line in _format_chunk_as_sse_lines(payload):
                 yield line
     except Exception:
         logger.exception("Chat completion stream failed mid-stream.")
@@ -554,14 +545,13 @@ async def _astream_openai_chunks(
     yield "data: [DONE]\n\n"
 
 
-def _format_chunk_as_sse_lines(chunk: Any, association_id: str | None = None) -> list[str]:
-    if association_id is not None:
-        payload = chunk.to_dict(mode="json") if hasattr(chunk, "to_dict") else _to_jsonable(chunk)
-        chunk_json = json.dumps(_with_association_id(payload, association_id))
-    elif hasattr(chunk, "to_json"):
-        chunk_json = chunk.to_json(indent=None)
-    else:
-        chunk_json = json.dumps(_to_jsonable(chunk))
+def _chunk_payload(chunk: Any, association_id: str | None) -> Any:
+    payload = chunk.to_dict(mode="json") if hasattr(chunk, "to_dict") else _to_jsonable(chunk)
+    return _with_association_id(payload, association_id)
+
+
+def _format_chunk_as_sse_lines(payload: Any) -> list[str]:
+    chunk_json = json.dumps(payload)
     lines = [f"data: {line}\n" for line in chunk_json.splitlines()]
     lines.append("\n")
     return lines
