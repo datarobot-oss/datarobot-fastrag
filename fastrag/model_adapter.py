@@ -182,7 +182,16 @@ class AsyncModelAdapter(ModelAdapter):
     async def score(self, data: pd.DataFrame, **kwargs: Any) -> Any:
         score_hook = self.hooks.require(HookName.SCORE)
         if self._mod_pipeline is not None:
-            return await self._mod_pipeline.async_score(data, self.model, score_hook, **kwargs)
+            loop = asyncio.get_running_loop()
+
+            def _sync_score_hook(df: pd.DataFrame, model: Any, **kwargs: Any) -> Any:
+                return asyncio.run_coroutine_threadsafe(
+                    score_hook(df, model, **kwargs), loop
+                ).result()
+
+            return await self._mod_pipeline.async_score(
+                data, self.model, _sync_score_hook, **kwargs
+            )
         return await score_hook(data, self.model, **kwargs)
 
     async def chat(
