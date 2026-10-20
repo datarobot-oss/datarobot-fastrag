@@ -17,6 +17,7 @@ from unittest.mock import patch
 
 import pandas as pd
 import pytest
+from opentelemetry import context as otel_context
 
 from fastrag.loader import HookRegistry
 from fastrag.model_adapter import AsyncModelAdapter
@@ -97,11 +98,14 @@ async def test_score_calls_mod_pipeline_when_present() -> None:
 
 
 async def test_async_score_hook_runs_on_event_loop_through_mod_pipeline() -> None:
-    """An async score hook must be awaited on the server loop when moderations is enabled."""
+    """An async score hook must be awaited on the server loop, in the request's OTel context,
+    when moderations is enabled."""
     hook_loops: list[asyncio.AbstractEventLoop] = []
+    hook_otel_values: list[Any] = []
 
     async def async_score_hook(data: pd.DataFrame, model: Any, **kwargs: Any) -> pd.DataFrame:
         hook_loops.append(asyncio.get_running_loop())
+        hook_otel_values.append(otel_context.get_value("request-marker"))
         return pd.DataFrame({"completion": ["async"] * len(data)})
 
     async def fake_async_score(data: pd.DataFrame, model: Any, drum_score_fn: Any, **kwargs: Any):
@@ -114,12 +118,15 @@ async def test_async_score_hook_runs_on_event_loop_through_mod_pipeline() -> Non
     adapter = AsyncModelAdapter(hooks=HookRegistry(score=async_score_hook), code_dir=".")
     await adapter.initialize()
     adapter._mod_pipeline = mock_pipeline
+    token = otel_context.attach(otel_context.set_value("request-marker", "request-1"))
     try:
         result = await adapter.score(_DUMMY_DF)
         assert isinstance(result, pd.DataFrame)
         assert list(result["completion"]) == ["async", "async"]
         assert hook_loops == [asyncio.get_running_loop()]
+        assert hook_otel_values == ["request-1"]
     finally:
+        otel_context.detach(token)
         adapter.shutdown()
 
 
