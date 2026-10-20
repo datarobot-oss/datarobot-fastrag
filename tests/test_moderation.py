@@ -17,8 +17,10 @@ from unittest.mock import patch
 
 import pandas as pd
 import pytest
+from opentelemetry import context as otel_context
 
 from fastrag.loader import HookRegistry
+from fastrag.model_adapter import AsyncModelAdapter
 from fastrag.model_adapter import SyncModelAdapter
 
 _MODERATED_MODEL_DIR = os.path.join(os.path.dirname(__file__), "moderated_model")
@@ -92,6 +94,39 @@ async def test_score_calls_mod_pipeline_when_present() -> None:
         assert call_args.args[2] is _dummy_score
         assert list(result["completion"]) == ["moderated", "moderated"]
     finally:
+        adapter.shutdown()
+
+
+async def test_async_score_hook_runs_on_event_loop_through_mod_pipeline() -> None:
+    """An async score hook must be awaited on the server loop, in the request's OTel context,
+    when moderations is enabled."""
+    hook_loops: list[asyncio.AbstractEventLoop] = []
+    hook_otel_values: list[Any] = []
+
+    async def async_score_hook(data: pd.DataFrame, model: Any, **kwargs: Any) -> pd.DataFrame:
+        hook_loops.append(asyncio.get_running_loop())
+        hook_otel_values.append(otel_context.get_value("request-marker"))
+        return pd.DataFrame({"completion": ["async"] * len(data)})
+
+    async def fake_async_score(data: pd.DataFrame, model: Any, drum_score_fn: Any, **kwargs: Any):
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, lambda: drum_score_fn(data, model, **kwargs))
+
+    mock_pipeline = MagicMock()
+    mock_pipeline.async_score = fake_async_score
+
+    adapter = AsyncModelAdapter(hooks=HookRegistry(score=async_score_hook), code_dir=".")
+    await adapter.initialize()
+    adapter._mod_pipeline = mock_pipeline
+    token = otel_context.attach(otel_context.set_value("request-marker", "request-1"))
+    try:
+        result = await adapter.score(_DUMMY_DF)
+        assert isinstance(result, pd.DataFrame)
+        assert list(result["completion"]) == ["async", "async"]
+        assert hook_loops == [asyncio.get_running_loop()]
+        assert hook_otel_values == ["request-1"]
+    finally:
+        otel_context.detach(token)
         adapter.shutdown()
 
 
@@ -266,6 +301,34 @@ async def test_score_flows_through_real_pipeline() -> None:
             code_dir=_MODERATED_MODEL_DIR,
             score=_dummy_score,
             max_workers=2,
+        )
+        await adapter.initialize()
+        try:
+            assert adapter._mod_pipeline is not None
+            results = await asyncio.gather(*[adapter.score(_DUMMY_DF) for _ in range(5)])
+            assert len(results) == 5
+            for r in results:
+                assert len(r) == len(_DUMMY_DF)
+        finally:
+            adapter.shutdown()
+    finally:
+        if old is not None:
+            os.environ["TARGET_TYPE"] = old
+
+
+@pytest.mark.integration
+async def test_async_score_flows_through_real_pipeline() -> None:
+    """End-to-end: real moderation pipeline must await an async score hook."""
+    pytest.importorskip("datarobot_dome", reason="datarobot-moderations not installed")
+
+    async def async_score(data: pd.DataFrame, model: Any, **kwargs: Any) -> pd.DataFrame:
+        await asyncio.sleep(0)
+        return pd.DataFrame({"completion": ["response"] * len(data)})
+
+    old = os.environ.pop("TARGET_TYPE", None)
+    try:
+        adapter = AsyncModelAdapter(
+            hooks=HookRegistry(score=async_score), code_dir=_MODERATED_MODEL_DIR
         )
         await adapter.initialize()
         try:

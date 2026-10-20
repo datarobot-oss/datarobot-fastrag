@@ -9,6 +9,10 @@ All notable changes to `datarobot-fastrag` are recorded here. The format follows
 
 <!-- version list -->
 
+## v0.2.11 (2026-10-20)
+
+- Fixed scoring with an async `score` hook and a moderation pipeline failing with `'coroutine' object has no attribute 'columns'` by awaiting score hook on the server event loop
+
 ## v0.2.10 (2026-10-16)
 
 - Fixed issue where non-streaming chat with a moderation pipeline failed with "Cannot run the event loop while another loop is running" by moving the moderation library's custom metric uploads outside event loop.
