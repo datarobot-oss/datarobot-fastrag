@@ -1,3 +1,17 @@
+# make takes its default goal from the first non-dot target it parses, and
+# `include` is parsed inline where it appears. Setting the goal explicitly keeps
+# a bare `make` on help regardless of what targets an included file defines.
+.DEFAULT_GOAL := help
+
+include .mkfiles/*.mk
+
+.PHONY: help
+help:
+	@echo "====================="
+	@echo "🛠oo  Available Commands"
+	@echo "====================="
+	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n"} /^[a-zA-Z_0-9-]+:.*?##/ { printf "  \033[36m%-25s\033[0m %s\n", $$1, $$2 } /^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) } ' $(MAKEFILE_LIST)
+
 .PHONY: install-deps
 install-deps: ## Install core dependencies via uv
 	pip install uv
