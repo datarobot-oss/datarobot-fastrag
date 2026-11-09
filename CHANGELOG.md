@@ -9,6 +9,11 @@ All notable changes to `datarobot-fastrag` are recorded here. The format follows
 
 <!-- version list -->
 
+## v0.2.12 (2026-11-06)
+
+- Minimum Python version required bumped to 3.13, minimum uv version to 0.13.4.
+- Added a set of dependency constraints to help fight CVEs.
+
 ## v0.2.11 (2026-10-20)
 
 - Fixed scoring with an async `score` hook and a moderation pipeline failing with `'coroutine' object has no attribute 'columns'` by awaiting score hook on the server event loop

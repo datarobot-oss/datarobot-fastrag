@@ -1,0 +1,121 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Automerge policy — copy to `.github/automerge.yaml` in your own repo.
+#
+# The presence of this file is what enrols a repo. Delete it and automerge stops,
+# with no workflow edit needed.
+#
+# It is always read from the DEFAULT BRANCH, never from a PR head, so a pull
+# request cannot ship a policy that grants itself permission to be merged.
+# ─────────────────────────────────────────────────────────────────────────────
+
+version: 1
+
+# Logins whose PRs may be merged. EVERY commit on the PR must be authored AND
+# committed by one of these, not just the PR opener: `pull_request.user.login`
+# stays the bot after a human pushes to the branch, so checking only the opener
+# would leave a way to smuggle hand-written code through the automerge path.
+#
+# A commit with no linked GitHub account cannot be shown to come from a bot on
+# this list, so it is refused too.
+allowed_authors:
+  - cve-sync[bot]
+
+# The opt-in label. A PR without it is never considered, so the authoring bot
+# has to actively declare its own change automergeable. Apply it from
+# dependabot.yml's `labels:`, or the equivalent in cve-sync.
+label: automerge
+
+# ─────────────────────────────────────────────────────────────────────────────
+# expected_checks — THE REASON THIS FILE EXISTS
+#
+# Every context here must be PRESENT and green before a merge. Not "not
+# failing": present. A PR where a suite never ran at all is refused, which is
+# the case that "all checks are green" silently gets wrong.
+#
+# This is a strictly higher bar than the repo's REQUIRED checks, and it can
+# afford to be. A required context that a PR legitimately never fires leaves
+# that PR pending forever, so the required set has to stay small. This list
+# wedges nothing: if an expected check is missing, the PR simply waits for a
+# human instead of merging itself. So list everything you would actually want
+# to see before merging a bot's change, including suites you could never make
+# mandatory repo-wide.
+#
+# The contexts your rulesets already require are added to this list
+# automatically, read from the branch rules API. Do not copy them in here; they
+# would only drift.
+#
+# A CAVEAT WORTH KNOWING: a job that is skipped reports no status at all, so a
+# path-filtered workflow will simply never report and the PR will never merge.
+# The fix is the always-reporting gate job (a `needs:`-gated job with
+# `if: always()` whose name is the context you list here), not a shorter list.
+# A gate reports green in seconds having run nothing when the suite does not
+# apply, so it stays listable.
+# ─────────────────────────────────────────────────────────────────────────────
+expected_checks:
+  - "lint, typecheck, test"
+  - "changelog entry for version bump"
+  - "gitleaks"
+  - "gate / cve-sync gate"
+
+# Refuse when ANY check is failing, including ones neither required nor listed
+# above. `skipped` and `neutral` always count as a pass. Defaults to true; a
+# policy that omits the key gets the strict behaviour.
+block_on_any_failure: true
+
+# ─────────────────────────────────────────────────────────────────────────────
+# block_on_cursor_comments — treat an AI reviewer's finding as a failure
+#
+# Cursor Bugbot (and anything like it) does not report through a check. It
+# leaves an inline review comment, and its parent review is `COMMENTED`, a state
+# automerge otherwise ignores on purpose so that an ordinary "looks good" note
+# cannot stop a merge. The result without this flag is that a bot PR can carry a
+# high-severity Bugbot finding and still merge itself, because every check was
+# green and nobody clicked "Request changes".
+#
+# Turn this on and an open finding becomes a TERMINAL refusal: the opt-in label
+# comes off, `escalate_label` goes on, and the PR is handed to a person.
+#
+# What counts as "open" is the thing to understand. Automerge looks at review
+# THREADS, not comments:
+#   - RESOLVED threads never block. Clicking "Resolve conversation" is how a
+#     person says the finding has been dealt with.
+#   - OUTDATED threads never block. The lines the bot pointed at are no longer
+#     in the diff, so the finding no longer describes this PR. This is also what
+#     makes the escalation recoverable: fix the code, re-apply the label.
+#   - Bugbot's "I reviewed your changes" summary is not a thread, so a clean
+#     review does not block. It opens a thread only when it found something.
+#
+# Defaults to false. Unlike the other guards this one hands your PR to a human
+# on the say-so of a third-party bot, so it is opt-in.
+# ─────────────────────────────────────────────────────────────────────────────
+block_on_cursor_comments: true
+
+# Which logins count as a review bot for the flag above. Defaults to
+# `cursor[bot]`, so most repos can leave this out entirely. The `[bot]` suffix
+# is optional: GitHub spells the same account `cursor[bot]` in the REST API and
+# `cursor` in GraphQL, and both forms match.
+review_bot_logins:
+  - cursor[bot]
+
+# Quiet time required between the last check completing and the merge, measured
+# against the check timestamps rather than slept through. Its real job is
+# catching a workflow that has not registered a check run yet.
+settle_seconds: 300
+
+# Refuse a PR touching more than this many files. 0 disables the check.
+max_changed_files: 25
+
+# When set, every changed file must match at least one glob (`*`, `**`, `?`), so
+# a lockfile bot cannot merge a source change even if it is somehow labelled.
+# Leave empty for no path restriction.
+allowed_paths:
+  - "uv.lock"
+  - "pyproject.toml"
+  - "CHANGELOG.md"
+  - ".mkfiles/8_cve_sync.mk"
+  - ".cve-sync-overrides.toml"
+
+# merge, squash, or rebase. Match whatever your ruleset's allowed_merge_methods
+# permits, or GitHub refuses the merge.
+merge_method: squash
+escalate_label: "00 - Ready for Review"

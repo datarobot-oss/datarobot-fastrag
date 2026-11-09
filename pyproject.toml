@@ -1,9 +1,9 @@
 [project]
 name = "datarobot-fastrag"
-version = "0.2.11"
+version = "0.2.12"
 description = "Async FastAPI runner for DataRobot custom LLM and RAG models"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.13"
 authors = [
     { name = "Nickolai Novik", email = "nickolai@datarobot.com" },
     { name = "Mikael Baath", email = "mikael.baath@datarobot.com" },
@@ -49,7 +49,7 @@ dev = [
 
 
 [project.optional-dependencies]
-build = ["uv~=0.9.6"]
+build = ["uv>=0.13.4"]
 
 [tool.semantic_release]
 version_toml = ["pyproject.toml:project.version"]
@@ -121,3 +121,28 @@ max-complexity = 15
 disallow_untyped_defs = true
 disable_error_code = ["import-untyped"]
 plugins = ["pydantic.mypy"]
+
+[tool.uv]
+# cve-sync:begin
+constraint-dependencies = [
+    "aiohttp>=3.14.4",
+    "anyio>=4.14.2",
+    "certifi>=2026.10.19",
+    "click>=8.3.3",
+    "gitpython>=3.2.1",
+    "idna>=3.15",
+    "multidict>=6.9.1",
+    "nltk>=3.10.4",
+    "openai>=2.30.0",
+    "opentelemetry-api>=1.45.1",
+    "pillow>=13.0.0",
+    "pydantic-settings>=2.14.2",
+    "pygments>=2.20.0",
+    "pytest>=9.0.3",
+    "python-multipart>=0.0.31",
+    "requests>=2.33.0",
+    "starlette>=1.3.1",
+    "urllib3>=2.8.0",
+    "uv>=0.13.4",
+]
+# cve-sync:end
