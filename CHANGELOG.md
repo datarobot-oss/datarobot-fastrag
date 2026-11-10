@@ -9,6 +9,21 @@ All notable changes to `datarobot-fastrag` are recorded here. The format follows
 
 <!-- version list -->
 
+## 0.2.13 (2026-11-10)
+
+- Raise the declared requirement `aiohttp>=3.13.3` to `aiohttp>=3.14.4` to match a CVE fix this repo
+  already enforces.
+- Raise the declared requirement `openai>=2.20.0` to `openai>=2.30.0` to match a CVE fix this repo
+  already enforces.
+- Raise the declared requirement `opentelemetry-api>=1.23.0` to `opentelemetry-api>=1.45.1` to match
+  a CVE fix this repo already enforces.
+- Raise the declared requirement `pydantic-settings>=2.7.1` to `pydantic-settings>=2.14.2` to match
+  a CVE fix this repo already enforces.
+- Raise the declared requirement `pytest>=9.0.2` to `pytest>=9.0.3` to match a CVE fix this repo
+  already enforces.
+- Raise the declared requirement `python-multipart>=0.0.9` to `python-multipart>=0.0.31` to match a
+  CVE fix this repo already enforces.
+
 ## v0.2.12 (2026-11-06)
 
 - Minimum Python version required bumped to 3.13, minimum uv version to 0.13.4.
@@ -65,17 +80,3 @@ All notable changes to `datarobot-fastrag` are recorded here. The format follows
 ## v0.2.1 (2026-08-11)
 
 - First public release
-
-## 0.2.13 - 2026-11-10
-- Raise the declared requirement `aiohttp>=3.13.3` to `aiohttp>=3.14.4` to match a CVE fix this repo
-  already enforces.
-- Raise the declared requirement `openai>=2.20.0` to `openai>=2.30.0` to match a CVE fix this repo
-  already enforces.
-- Raise the declared requirement `opentelemetry-api>=1.23.0` to `opentelemetry-api>=1.45.1` to match
-  a CVE fix this repo already enforces.
-- Raise the declared requirement `pydantic-settings>=2.7.1` to `pydantic-settings>=2.14.2` to match
-  a CVE fix this repo already enforces.
-- Raise the declared requirement `pytest>=9.0.2` to `pytest>=9.0.3` to match a CVE fix this repo
-  already enforces.
-- Raise the declared requirement `python-multipart>=0.0.9` to `python-multipart>=0.0.31` to match a
-  CVE fix this repo already enforces.
