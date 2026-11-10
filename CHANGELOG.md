@@ -9,7 +9,7 @@ All notable changes to `datarobot-fastrag` are recorded here. The format follows
 
 <!-- version list -->
 
-## 0.2.13 (2026-11-10)
+## v0.2.13 (2026-11-10)
 
 - Raise the declared requirement `aiohttp>=3.13.3` to `aiohttp>=3.14.4` to match a CVE fix this repo
   already enforces.
