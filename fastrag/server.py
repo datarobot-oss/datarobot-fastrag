@@ -42,6 +42,7 @@ from .prediction_data import chat_prompt_text
 from .prediction_data import start_data_reporter
 from .prediction_stats import PredictionStatsReporter
 from .prediction_stats import start_reporter
+from .runtime_parameters import RuntimeParameters
 from .schemas import CapabilitiesResponse
 from .schemas import HealthResponse
 from .schemas import InfoResponse
@@ -411,12 +412,39 @@ async def get_supported_llm_models(
                 "get_supported_llm_models is supported only for TextGen and AgenticWorkflow models"
             ),
         )
-    _ensure_hook_available(model_adapter, HookName.GET_SUPPORTED_LLM_MODELS)
-    return await _await_or_api_error(
+    if not model_adapter.hooks.has(HookName.GET_SUPPORTED_LLM_MODELS):
+        return _llm_id_models_list()
+    models = await _await_or_api_error(
         model_adapter.get_supported_llm_models(),
         detail="Models endpoint failed.",
         log_message="Models endpoint failed.",
     )
+    return _models_list(models)
+
+
+def _models_list(models: Any) -> Any:
+    """Wrap the hook's models in the OpenAI `GET /v1/models` shape.
+
+    A hook that already returns `{"object": "list", ...}` is passed through unchanged.
+    """
+    if isinstance(models, dict) and models.get("object") == "list":
+        return models
+    return {"object": "list", "data": [_to_jsonable(model) for model in models]}
+
+
+def _llm_id_models_list() -> dict[str, Any]:
+    """Models list without a hook: the `LLM_ID` runtime parameter if set, else empty (as DRUM)."""
+    data = []
+    if RuntimeParameters.has("LLM_ID"):
+        data.append(
+            {
+                "id": RuntimeParameters.get("LLM_ID"),
+                "object": "model",
+                "created": 1735689600,  # 2025-01-01
+                "owned_by": "DataRobot",
+            }
+        )
+    return {"object": "list", "data": data}
 
 
 def _format_chat_response(
