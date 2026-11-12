@@ -12,6 +12,7 @@ All notable changes to `datarobot-fastrag` are recorded here. The format follows
 ## v0.2.14 (2026-11-12)
 
 - `GET /models` now returns an OpenAI-shaped list, so `openai` `models.list()` works, and falls back to the `LLM_ID` runtime parameter when the `get_supported_llm_models` hook is missing.
+- `POST /predictions` for text generation models now returns the `target_name` column as the prediction when the hook adds extra columns (for example moderation guards), instead of the first column.
 
 ## v0.2.13 (2026-11-10)
 
