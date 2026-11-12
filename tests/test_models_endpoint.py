@@ -91,6 +91,20 @@ def test_models_without_hook_fall_back_to_llm_id(monkeypatch, tmp_path, llm_id):
     assert response.json() == {"object": "list", "data": expected}
 
 
+@pytest.mark.parametrize("payload", [None, ""])
+def test_models_without_hook_skip_empty_llm_id(monkeypatch, tmp_path, payload):
+    monkeypatch.setenv(
+        RuntimeParameters.namespaced_param_name("LLM_ID"),
+        json.dumps({"type": "string", "payload": payload}),
+    )
+
+    with _client(monkeypatch, "textgeneration", _code_dir(tmp_path, NO_MODELS_HOOK)) as c:
+        response = c.get("/models")
+
+    assert response.status_code == 200, response.text
+    assert response.json() == {"object": "list", "data": []}
+
+
 def test_models_rejected_for_other_target_types(monkeypatch):
     with _client(monkeypatch, "regression") as c:
         response = c.get("/models")

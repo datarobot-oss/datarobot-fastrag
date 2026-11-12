@@ -433,12 +433,17 @@ def _models_list(models: Any) -> Any:
 
 
 def _llm_id_models_list() -> dict[str, Any]:
-    """Models list without a hook: the `LLM_ID` runtime parameter if set, else empty (as DRUM)."""
+    """Models list without a hook: the `LLM_ID` runtime parameter, else empty (as DRUM).
+
+    A null or empty `LLM_ID` gives an empty list. A malformed `LLM_ID` value raises,
+    so a broken deployment config is not hidden.
+    """
     data = []
-    if RuntimeParameters.has("LLM_ID"):
+    llm_id = RuntimeParameters.get("LLM_ID") if RuntimeParameters.has("LLM_ID") else None
+    if isinstance(llm_id, str) and llm_id:
         data.append(
             {
-                "id": RuntimeParameters.get("LLM_ID"),
+                "id": llm_id,
                 "object": "model",
                 "created": 1735689600,  # 2025-01-01
                 "owned_by": "DataRobot",
