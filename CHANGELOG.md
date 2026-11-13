@@ -85,3 +85,8 @@ All notable changes to `datarobot-fastrag` are recorded here. The format follows
 ## v0.2.1 (2026-08-11)
 
 - First public release
+
+## 0.2.15 - 2026-11-13
+- Raise the minimum `opentelemetry-api` version from `>=1.45.1` to `>=1.45.2`.
+- Raise the declared requirement `opentelemetry-api>=1.45.1` to `opentelemetry-api>=1.45.2` to match
+  a CVE fix this repo already enforces.
