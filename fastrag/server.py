@@ -42,6 +42,7 @@ from .prediction_data import chat_prompt_text
 from .prediction_data import start_data_reporter
 from .prediction_stats import PredictionStatsReporter
 from .prediction_stats import start_reporter
+from .runtime_parameters import RuntimeParameters
 from .schemas import CapabilitiesResponse
 from .schemas import HealthResponse
 from .schemas import InfoResponse
@@ -411,12 +412,49 @@ async def get_supported_llm_models(
                 "get_supported_llm_models is supported only for TextGen and AgenticWorkflow models"
             ),
         )
-    _ensure_hook_available(model_adapter, HookName.GET_SUPPORTED_LLM_MODELS)
-    return await _await_or_api_error(
+    if not model_adapter.hooks.has(HookName.GET_SUPPORTED_LLM_MODELS):
+        return _llm_id_models_list()
+    models = await _await_or_api_error(
         model_adapter.get_supported_llm_models(),
         detail="Models endpoint failed.",
         log_message="Models endpoint failed.",
     )
+    return _models_list(models)
+
+
+def _models_list(models: Any) -> dict[str, Any]:
+    """Return the hook's models (a list, a page or a dict with `data`) as an OpenAI models list."""
+    models = _to_jsonable(models)
+    if isinstance(models, dict) and "data" in models:
+        return {**models, "object": "list"}
+    if not isinstance(models, Iterable) or isinstance(models, (str, bytes, dict)):
+        raise InternalServerError(
+            detail="Models endpoint failed.",
+            log_message=(
+                f"get_supported_llm_models returned an unsupported {type(models).__name__}."
+            ),
+        )
+    return {"object": "list", "data": [_to_jsonable(model) for model in models]}
+
+
+def _llm_id_models_list() -> dict[str, Any]:
+    """Models list without a hook: the `LLM_ID` runtime parameter, else empty (as DRUM).
+
+    A null or empty `LLM_ID` gives an empty list. A malformed `LLM_ID` value raises,
+    so a broken deployment config is not hidden.
+    """
+    data = []
+    llm_id = RuntimeParameters.get("LLM_ID") if RuntimeParameters.has("LLM_ID") else None
+    if isinstance(llm_id, str) and llm_id:
+        data.append(
+            {
+                "id": llm_id,
+                "object": "model",
+                "created": 1735689600,  # 2025-01-01
+                "owned_by": "DataRobot",
+            }
+        )
+    return {"object": "list", "data": data}
 
 
 def _format_chat_response(

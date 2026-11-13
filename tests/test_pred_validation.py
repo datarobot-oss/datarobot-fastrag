@@ -205,6 +205,40 @@ def test_text_generation_with_extra_columns_auto_split(text_generation_metadata)
     assert set(resp.extraModelOutput.columns) == {"token_count", "metadata"}
 
 
+@pytest.mark.parametrize(
+    ("columns", "expected_predictions", "expected_extra"),
+    [
+        pytest.param(
+            {"guard_toxicity": [0.1], "completion": ["hello"], "guard_pii": [False]},
+            ["hello"],
+            ["guard_toxicity", "guard_pii"],
+            id="target-column-not-first",
+        ),
+        pytest.param({"completion": ["hello"]}, ["hello"], None, id="single-column"),
+        pytest.param(
+            {"guard_toxicity": ["0.1"], "text": ["hello"]},
+            ["0.1"],
+            ["text"],
+            id="no-target-column-falls-back-to-first",
+        ),
+    ],
+)
+def test_text_generation_target_column_from_target_name(
+    columns, expected_predictions, expected_extra
+):
+    """The target name, not column order, decides which column holds the completion."""
+    metadata = ModelMetadata(
+        target_type=TargetType.TEXT_GENERATION,
+        inference_model={"targetName": "completion"},
+    )
+
+    resp = format_prediction_response(pd.DataFrame(columns), metadata)
+
+    assert resp.predictions == expected_predictions
+    extra_columns = resp.extraModelOutput.columns if resp.extraModelOutput else None
+    assert extra_columns == expected_extra
+
+
 def test_vector_database_selects_typed_response(vector_database_metadata):
     df = pd.DataFrame({"relevant": [["chunk a", "chunk b"], ["chunk c"]]})
     resp = format_prediction_response(df, vector_database_metadata)

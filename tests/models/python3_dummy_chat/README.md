@@ -31,9 +31,7 @@ curl -X POST http://localhost:6789/v1/chat/completions \
 
 ### Using OpenAI Python client:
 
-Note: `client.models.list()` does not work against `fastrag`. The `/models` route returns the
-bare list from the `get_supported_llm_models` hook, not the `{"object": "list", "data": [...]}`
-envelope the OpenAI client expects, so use the `curl` above to list models.
+`client.models.list()` lists the models from the `get_supported_llm_models` hook.
 
 #### Simple chat:
 

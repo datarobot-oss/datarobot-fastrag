@@ -137,7 +137,7 @@ Upload `custom.py` and `model-metadata.yaml` as a custom model in the DataRobot 
 | `chat` | `(completion_create_params: dict, model: Any, **kwargs) -> dict \| Iterator` | OpenAI chat completions. Return a dict or a (sync/async) generator for streaming. |
 | `score` | `(data: pd.DataFrame, model: Any, **kwargs) -> pd.DataFrame` | Tabular predictions. |
 | `score_unstructured` | `(data: Any, model: Any, **kwargs) -> Any` | Raw bytes in/out. |
-| `get_supported_llm_models` | `(model: Any) -> list[Model]` | Populates `/v1/models`. |
+| `get_supported_llm_models` | `(model: Any) -> list[Model]` | Populates `/v1/models`. Without it, `/v1/models` lists the `LLM_ID` runtime parameter, or nothing. |
 
 All hooks can be `async def` or plain `def`. Sync hooks run in a thread pool.
 

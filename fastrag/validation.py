@@ -234,12 +234,12 @@ def format_prediction_response(
         predictions, extra_model_output = split_predictions_and_extra_output(
             predictions, prediction_columns=inference_model.class_labels
         )
-    elif target_type in {TargetType.REGRESSION, TargetType.ANOMALY, TargetType.TEXT_GENERATION}:
+    elif target_type in {TargetType.REGRESSION, TargetType.ANOMALY}:
         target_col = "prediction" if "prediction" in predictions.columns else None
         predictions, extra_model_output = split_predictions_and_extra_output(
             predictions, target_column=target_col
         )
-    elif target_type == TargetType.VECTOR_DATABASE:
+    elif target_type in {TargetType.TEXT_GENERATION, TargetType.VECTOR_DATABASE}:
         target_col = _resolve_target_column(predictions, inference_model.target_name)
         predictions, extra_model_output = split_predictions_and_extra_output(
             predictions, target_column=target_col
