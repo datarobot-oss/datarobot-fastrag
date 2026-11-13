@@ -9,6 +9,12 @@ All notable changes to `datarobot-fastrag` are recorded here. The format follows
 
 <!-- version list -->
 
+## v0.2.15 (2026-11-13)
+
+- Raise the minimum `opentelemetry-api` version from `>=1.45.1` to `>=1.45.2`.
+- Raise the declared requirement `opentelemetry-api>=1.45.1` to `opentelemetry-api>=1.45.2` to match
+  a CVE fix this repo already enforces.
+
 ## v0.2.14 (2026-11-12)
 
 - `GET /models` now returns an OpenAI-shaped list, so `openai` `models.list()` works (the `get_supported_llm_models` hook may also return the result of the OpenAI client's `models.list()`), and falls back to the `LLM_ID` runtime parameter when the `get_supported_llm_models` hook is missing.
@@ -85,8 +91,3 @@ All notable changes to `datarobot-fastrag` are recorded here. The format follows
 ## v0.2.1 (2026-08-11)
 
 - First public release
-
-## 0.2.15 - 2026-11-13
-- Raise the minimum `opentelemetry-api` version from `>=1.45.1` to `>=1.45.2`.
-- Raise the declared requirement `opentelemetry-api>=1.45.1` to `opentelemetry-api>=1.45.2` to match
-  a CVE fix this repo already enforces.
