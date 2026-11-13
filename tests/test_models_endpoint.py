@@ -17,11 +17,32 @@ from fastrag.server import app
 
 DUMMY_MODEL_DIR = os.path.join(os.path.dirname(__file__), "dummy_model")
 
-PRE_WRAPPED_HOOK = """
+MODEL = {"id": "m1", "object": "model", "created": 1, "owned_by": "me"}
+
+HOOK_RESULTS = {
+    "async-page": """
+from openai.pagination import AsyncPage
+from openai.types.model import Model
+
+async def get_supported_llm_models(model):
+    return AsyncPage[Model](data=[Model(**MODEL)], object="list")
+""",
+    "sync-page": """
+from openai.pagination import SyncPage
+from openai.types.model import Model
+
 def get_supported_llm_models(model):
-    model = {"id": "wrapped", "object": "model", "created": 1, "owned_by": "me"}
-    return {"object": "list", "data": [model]}
-"""
+    return SyncPage[Model](data=[Model(**MODEL)], object="list")
+""",
+    "list-of-dicts": """
+def get_supported_llm_models(model):
+    return [MODEL]
+""",
+    "pre-wrapped-dict": """
+def get_supported_llm_models(model):
+    return {"object": "list", "data": [MODEL]}
+""",
+}
 
 NO_MODELS_HOOK = """
 def load_model(code_dir):
@@ -60,15 +81,26 @@ def test_openai_client_lists_models(monkeypatch):
     assert [m.id for m in models] == ["datarobot_llm_id"]
 
 
-def test_pre_wrapped_hook_result_passed_through(monkeypatch, tmp_path):
-    with _client(monkeypatch, "textgeneration", _code_dir(tmp_path, PRE_WRAPPED_HOOK)) as c:
+@pytest.mark.parametrize("hook", HOOK_RESULTS.values(), ids=HOOK_RESULTS.keys())
+def test_hook_result_shapes_become_models_list(monkeypatch, tmp_path, hook):
+    custom_py = f"MODEL = {MODEL!r}\n{hook}"
+    with _client(monkeypatch, "textgeneration", _code_dir(tmp_path, custom_py)) as c:
         response = c.get("/models")
 
     assert response.status_code == 200, response.text
-    assert response.json() == {
-        "object": "list",
-        "data": [{"id": "wrapped", "object": "model", "created": 1, "owned_by": "me"}],
-    }
+    body = response.json()
+    assert body["object"] == "list"
+    assert [m["id"] for m in body["data"]] == ["m1"]
+
+
+@pytest.mark.parametrize("result", [None, "m1", {"object": "list"}], ids=["none", "str", "no-data"])
+def test_unsupported_hook_result_is_500(monkeypatch, tmp_path, result):
+    custom_py = f"def get_supported_llm_models(model):\n    return {result!r}\n"
+    with _client(monkeypatch, "textgeneration", _code_dir(tmp_path, custom_py)) as c:
+        response = c.get("/models")
+
+    assert response.status_code == 500
+    assert response.json() == {"detail": "Models endpoint failed."}
 
 
 @pytest.mark.parametrize("llm_id", ["my-llm", None])

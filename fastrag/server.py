@@ -422,13 +422,18 @@ async def get_supported_llm_models(
     return _models_list(models)
 
 
-def _models_list(models: Any) -> Any:
-    """Wrap the hook's models in the OpenAI `GET /v1/models` shape.
-
-    A hook that already returns `{"object": "list", ...}` is passed through unchanged.
-    """
-    if isinstance(models, dict) and models.get("object") == "list":
-        return models
+def _models_list(models: Any) -> dict[str, Any]:
+    """Return the hook's models (a list, a page or a dict with `data`) as an OpenAI models list."""
+    models = _to_jsonable(models)
+    if isinstance(models, dict) and "data" in models:
+        return {**models, "object": "list"}
+    if not isinstance(models, Iterable) or isinstance(models, (str, bytes, dict)):
+        raise InternalServerError(
+            detail="Models endpoint failed.",
+            log_message=(
+                f"get_supported_llm_models returned an unsupported {type(models).__name__}."
+            ),
+        )
     return {"object": "list", "data": [_to_jsonable(model) for model in models]}
 
 
