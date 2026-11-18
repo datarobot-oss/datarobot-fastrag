@@ -1,3 +1,4 @@
+import pytest
 import yaml
 
 from fastrag.model_metadata import ModelMetadata
@@ -137,3 +138,57 @@ def test_target_name_env_override_strips_quotes_greedily(monkeypatch):
     metadata.merge_env_overrides()
 
     assert metadata.inference_model.target_name == "relevant"
+
+
+def _write_metadata(path, content):
+    with open(path, "w") as f:
+        yaml.dump(content, f)
+
+
+@pytest.fixture
+def no_metadata_env(monkeypatch):
+    for name in ("TARGET_TYPE", "TARGET_NAME", "CLASS_LABELS"):
+        monkeypatch.delenv(name, raising=False)
+
+
+@pytest.mark.usefixtures("no_metadata_env")
+def test_for_server_reads_code_dir_metadata(tmp_path):
+    _write_metadata(
+        tmp_path / "model-metadata.yaml",
+        {"targetType": "textgeneration", "inferenceModel": {"targetName": "answer"}},
+    )
+
+    metadata = ModelMetadata.for_server(str(tmp_path), runtime_params_file=None)
+
+    assert metadata.target_type == TargetType.TEXT_GENERATION
+    assert metadata.inference_model.target_name == "answer"
+
+
+@pytest.mark.usefixtures("no_metadata_env")
+def test_for_server_code_dir_metadata_wins_over_runtime_params_file(tmp_path):
+    _write_metadata(tmp_path / "model-metadata.yaml", {"targetType": "textgeneration"})
+    values_file = tmp_path / "values.yaml"
+    _write_metadata(values_file, {"MY_PARAM": "value"})
+
+    metadata = ModelMetadata.for_server(str(tmp_path), runtime_params_file=str(values_file))
+
+    assert metadata.target_type == TargetType.TEXT_GENERATION
+
+
+@pytest.mark.usefixtures("no_metadata_env")
+def test_for_server_env_wins_over_code_dir_metadata(tmp_path, monkeypatch):
+    _write_metadata(tmp_path / "model-metadata.yaml", {"targetType": "textgeneration"})
+    monkeypatch.setenv("TARGET_TYPE", "Binary")
+    monkeypatch.setenv("CLASS_LABELS", "yes, no")
+
+    metadata = ModelMetadata.for_server(str(tmp_path), runtime_params_file=None)
+
+    assert metadata.target_type == TargetType.BINARY
+    assert metadata.inference_model.class_labels == ["yes", "no"]
+
+
+@pytest.mark.usefixtures("no_metadata_env")
+def test_for_server_defaults_without_metadata(tmp_path):
+    metadata = ModelMetadata.for_server(str(tmp_path), runtime_params_file=None)
+
+    assert metadata.target_type == TargetType.REGRESSION

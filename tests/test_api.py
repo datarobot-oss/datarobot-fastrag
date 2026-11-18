@@ -1,5 +1,6 @@
 import json
 import os
+import shutil
 
 import pandas as pd
 import pytest
@@ -369,3 +370,18 @@ def test_chat_stream_overwrites_upstream_association_id(client):
     ) as response:
         payloads = _sse_payloads("".join(response.iter_text()))
     assert [p["datarobot_association_id"] for p in payloads] == ["caller-id"]
+
+
+def test_predict_uses_target_type_from_code_dir_metadata(monkeypatch, tmp_path, test_model_dir):
+    shutil.copy(os.path.join(test_model_dir, "custom.py"), tmp_path / "custom.py")
+    (tmp_path / "model-metadata.yaml").write_text("targetType: textgeneration\n")
+    monkeypatch.setenv("CODE_DIR", str(tmp_path))
+    for name in ("RUNTIME_PARAMS_FILE", "TARGET_TYPE"):
+        monkeypatch.delenv(name, raising=False)
+
+    with TestClient(app) as c:
+        files = {"X": ("test.csv", b"promptText\nfoo", "text/csv")}
+        response = c.post("/predict/", files=files)
+
+    assert response.status_code == 200
+    assert response.json()["predictions"] == ["score: foo"]

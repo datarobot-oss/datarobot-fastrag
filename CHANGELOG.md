@@ -9,6 +9,10 @@ All notable changes to `datarobot-fastrag` are recorded here. The format follows
 
 <!-- version list -->
 
+## v0.2.16 (2026-11-18)
+
+- `fastrag server --code-dir` now reads `targetType`, `targetName` and the class labels from `<code-dir>/model-metadata.yaml`, so a text generation model works locally without `TARGET_TYPE`. Env vars still win over the file.
+
 ## v0.2.15 (2026-11-13)
 
 - Raise the minimum `opentelemetry-api` version from `>=1.45.1` to `>=1.45.2`.
