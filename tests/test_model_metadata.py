@@ -167,10 +167,10 @@ def test_for_server_reads_code_dir_metadata(tmp_path):
 @pytest.mark.usefixtures("no_metadata_env")
 def test_for_server_code_dir_metadata_wins_over_runtime_params_file(tmp_path):
     _write_metadata(tmp_path / "model-metadata.yaml", {"targetType": "textgeneration"})
-    values_file = tmp_path / "values.yaml"
-    _write_metadata(values_file, {"MY_PARAM": "value"})
+    runtime_params_file = tmp_path / "runtime-params.yaml"
+    _write_metadata(runtime_params_file, {"targetType": "binary"})
 
-    metadata = ModelMetadata.for_server(str(tmp_path), runtime_params_file=str(values_file))
+    metadata = ModelMetadata.for_server(str(tmp_path), runtime_params_file=str(runtime_params_file))
 
     assert metadata.target_type == TargetType.TEXT_GENERATION
 
