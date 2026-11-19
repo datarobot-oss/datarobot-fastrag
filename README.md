@@ -126,7 +126,7 @@ print(response.choices[0].message.content)
 
 ### Step 4 — deploy on DataRobot
 
-Upload `custom.py` and `model-metadata.yaml` as a custom model in the DataRobot UI, and select the **[GenAI] Python 3.12 with Moderations** execution environment. When the `GENAI_RAG_FRAG_RUNNER` platform flag is enabled for your org, the environment starts FastRAG automatically; otherwise it falls back to DRUM.
+Upload `custom.py` and `model-metadata.yaml` as a custom model in the DataRobot UI, and select the **[GenAI] Python 3.14 with Moderations** execution environment. The environment starts FastRAG for text generation and vector database models. See [How a GenAI custom model is served](docs/fastrag-rollout-flowchart.md).
 
 ### All supported hooks
 
