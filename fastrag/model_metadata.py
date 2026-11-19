@@ -12,6 +12,8 @@ from pydantic import Field
 
 from .runtime_parameters_schema import RuntimeParameterDefinition
 
+MODEL_CONFIG_FILENAME = "model-metadata.yaml"
+
 
 class TargetType(str, Enum):
     BINARY = "binary"
@@ -68,6 +70,23 @@ class ModelMetadata(BaseModel):
         if data is None:
             data = {}
         metadata = cls.model_validate(data)
+        return metadata
+
+    @classmethod
+    def for_server(cls, code_dir: str, runtime_params_file: Optional[str]) -> "ModelMetadata":
+        """Load the metadata the server runs the model with.
+
+        Precedence: env vars (`TARGET_TYPE`, `TARGET_NAME`, class labels), then
+        `<code_dir>/model-metadata.yaml`, then `runtime_params_file` parsed as metadata,
+        then defaults.
+        """
+        metadata_path = os.path.join(code_dir, MODEL_CONFIG_FILENAME)
+        metadata = cls()
+        if os.path.exists(metadata_path):
+            metadata = cls.from_yaml(metadata_path)
+        elif runtime_params_file:
+            metadata = cls.from_yaml(runtime_params_file)
+        metadata.merge_env_overrides()
         return metadata
 
     def merge_env_overrides(self) -> None:

@@ -6,6 +6,7 @@ from typing import Dict
 import yaml
 from pydantic import ValidationError
 
+from .model_metadata import MODEL_CONFIG_FILENAME
 from .model_metadata import ModelMetadata
 from .runtime_parameters_schema import RuntimeParameterBooleanPayload
 from .runtime_parameters_schema import RuntimeParameterCredentialPayload
@@ -15,8 +16,6 @@ from .runtime_parameters_schema import RuntimeParameterNumericPayload
 from .runtime_parameters_schema import RuntimeParameterPayload
 from .runtime_parameters_schema import RuntimeParameterStringPayload
 from .runtime_parameters_schema import RuntimeParameterTypes
-
-MODEL_CONFIG_FILENAME = "model-metadata.yaml"
 
 
 class RuntimeParameters:
