@@ -185,13 +185,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.settings = settings
 
     otel_providers: OTELProviders | None = setup_otel(app, settings)
-    if settings.runtime_params_file:
-        model_metadata = ModelMetadata.from_yaml(settings.runtime_params_file)
-    else:
-        model_metadata = ModelMetadata()
-
-    model_metadata.merge_env_overrides()
-    app.state.model_metadata = model_metadata
+    app.state.model_metadata = ModelMetadata.for_server(
+        settings.code_dir, settings.runtime_params_file
+    )
 
     hook_loader = HookLoader(settings.code_dir, max_workers=settings.thread_pool_workers)
     model_adapter = await hook_loader.load()
