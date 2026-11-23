@@ -503,7 +503,7 @@ integration = [{ name = "datarobot-moderations", extras = ["datarobot-sdk"], spe
 
 [[package]]
 name = "datarobot-moderations"
-version = "11.3.7"
+version = "11.4.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aiohttp" },
@@ -522,7 +522,7 @@ dependencies = [
     { name = "tiktoken" },
 ]
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/14/c6/9fe7de3e3b0c5b64686d2e99b6715d3c94a371952bff21e0f295627d1adb/datarobot_moderations-11.3.7-py3-none-any.whl", hash = "sha256:7a296ad5d0bd1c5d8ba32964c7a9ec0ba0506a96ef94f13fcbd7493e71fcf087", size = 184001, upload-time = "2026-09-21T11:48:10.42Z" },
+    { url = "https://files.pythonhosted.org/packages/8c/0b/d3e94fb9756b95ee70242daee1523135600abd4abacedd5ba58c44c72e70/datarobot_moderations-11.4.2-py3-none-any.whl", hash = "sha256:1a9ea0259fcbdb1feccbc0f1408fba3d6b66ac0660755220f5de44ad3f4cc1d6", size = 192516, upload-time = "2026-10-27T17:22:12.795Z" },
 ]
 
 [package.optional-dependencies]
